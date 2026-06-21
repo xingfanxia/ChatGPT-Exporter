@@ -47,9 +47,19 @@ button {
     cursor: pointer;
 }
 
+#export-current-btn {
+    background: #10a37f;
+    color: #fff;
+}
+
 #open-dialog-btn {
     background: #0ea5e9;
     color: #fff;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .link-btn {

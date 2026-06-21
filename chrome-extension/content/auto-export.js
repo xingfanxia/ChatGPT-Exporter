@@ -40,6 +40,11 @@
             sendResponse({ ok: true });
             return true;
         }
+        if (message?.type === 'EXPORT_CURRENT_PAGE') {
+            queueCommand('EXPORT_CURRENT');
+            sendResponse({ ok: true });
+            return true;
+        }
         return false;
     });
 })();

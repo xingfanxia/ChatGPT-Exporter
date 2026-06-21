@@ -322,6 +322,68 @@
         URL.revokeObjectURL(a.href);
     }
 
+    /**
+     * [新增] 从当前页面 URL 中解析正在查看的对话 ID。
+     * 个人 / 项目 / GPT 对话页地址均形如 .../c/<uuid>（项目页为 .../g/<gizmo>/c/<uuid>）。
+     * 仅匹配 /c/<uuid>，避免误把项目落地页（/g/g-p-.../project）中的 gizmo UUID 当作对话 ID。
+     * @returns {string|null}
+     */
+    function getCurrentConversationId() {
+        const path = location.pathname || '';
+        const match = path.match(/\/c\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+        return match ? match[1] : null;
+    }
+
+    let currentExportInFlight = false;
+
+    /**
+     * [新增] 导出当前正在查看的这一条对话。
+     * 打包为单个 ZIP（含 JSON + Markdown），与批量导出保持一致：
+     * 既避免浏览器“下载多个文件”拦截导致第二个文件被静默丢弃，也让“完成”提示真实可信。
+     */
+    async function exportCurrentConversation() {
+        // 仅在浮动状态按钮已存在时更新它，避免从弹窗触发时凭空向页面注入按钮。
+        const setStatus = (text) => {
+            const b = document.getElementById('gpt-rescue-btn');
+            if (b) b.textContent = text;
+        };
+
+        if (currentExportInFlight) return; // 重入保护：忽略进行中的重复触发
+        currentExportInFlight = true;
+
+        try {
+            const convId = getCurrentConversationId();
+            if (!convId) {
+                alert('未检测到当前对话。请先打开一个具体的对话页面（地址形如 https://chatgpt.com/c/...）后再试。');
+                return;
+            }
+            if (!await ensureAccessToken()) return;
+
+            setStatus('📥 导出当前对话…');
+            // 复用 getConversation：workspaceId 传 null 时会从 _account Cookie / 检测结果解析当前空间，
+            // 与当前页面所属账户保持一致（个人 / 团队 / 项目通用）。
+            const convData = await getConversation(convId, null);
+
+            const zip = new JSZip();
+            const jsonName = generateUniqueFilename(convData);
+            zip.file(jsonName, JSON.stringify(convData, null, 2));
+            zip.file(generateMarkdownFilename(convData), convertConversationToMarkdown(convData));
+            const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+            const zipName = `${jsonName.endsWith('.json') ? jsonName.slice(0, -5) : jsonName}.zip`;
+            downloadFile(blob, zipName);
+
+            alert('✅ 当前对话导出完成！');
+            setStatus('✅ 完成');
+        } catch (e) {
+            console.error('导出当前对话失败:', e);
+            alert(`导出当前对话失败: ${e.message}。详情请查看控制台（F12 -> Console）。`);
+            setStatus('⚠️ Error');
+        } finally {
+            currentExportInFlight = false;
+            setTimeout(() => setStatus('Export Conversations'), 3000);
+        }
+    }
+
     // --- 导出流程核心逻辑 ---
     function getExportButton() {
         let btn = document.getElementById('gpt-rescue-btn');
@@ -1211,9 +1273,19 @@
                 }
 
                 case 'initial':
-                default:
+                default: {
+                    const currentConvId = getCurrentConversationId();
+                    const currentCard = currentConvId ? `
+                                    <div style="padding: 16px; border: 1px solid #10a37f; border-radius: 8px; background: #f0fdf4;">
+                                        <strong style="font-size: 16px;">当前对话</strong>
+                                        <p style="margin: 4px 0 12px 0; color: #666;">仅导出当前正在查看的这一条对话（打包为 ZIP，含 JSON + Markdown）。</p>
+                                        <div style="display: flex; gap: 8px;">
+                                            <button id="select-current-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">导出当前对话</button>
+                                        </div>
+                                    </div>` : '';
                     html = `<h2 style="margin-top:0; margin-bottom: 20px; font-size: 18px;">选择要导出的空间</h2>
                                 <div style="display: flex; flex-direction: column; gap: 16px;">
+                                    ${currentCard}
                                     <div style="padding: 16px; border: 1px solid #ccc; border-radius: 8px; background: #f9fafb;">
                                         <strong style="font-size: 16px;">个人空间</strong>
                                         <p style="margin: 4px 0 12px 0; color: #666;">导出您个人账户下的对话。</p>
@@ -1243,6 +1315,7 @@
                                     <button id="cancel-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">取消</button>
                                 </div>`;
                     break;
+                }
             }
             dialog.innerHTML = html;
             attachListeners(step);
@@ -1250,6 +1323,11 @@
 
         const attachListeners = (step) => {
             if (step === 'initial') {
+                const currentBtn = document.getElementById('select-current-btn');
+                if (currentBtn) currentBtn.onclick = () => {
+                    closeDialog();
+                    exportCurrentConversation();
+                };
                 document.getElementById('select-personal-btn').onclick = () => {
                     closeDialog();
                     startExportProcess('personal', null);
@@ -1332,6 +1410,7 @@
     window.ChatGPTExporter = window.ChatGPTExporter || {};
     Object.assign(window.ChatGPTExporter, {
         showDialog: showExportDialog,
+        exportCurrent: exportCurrentConversation,
         startManualExport: (mode = 'personal', workspaceId = null) => {
             if (mode === 'project') {
                 return startProjectSpaceExportProcess(workspaceId);
@@ -1357,6 +1436,9 @@
                     break;
                 case 'OPEN_DIALOG':
                     api.showDialog();
+                    break;
+                case 'EXPORT_CURRENT':
+                    api.exportCurrent();
                     break;
                 case 'START_MANUAL_EXPORT':
                     api.startManualExport(data.payload?.mode, data.payload?.workspaceId);
