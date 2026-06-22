@@ -21,7 +21,8 @@
     • 新增“导出当前对话”：一键导出当前正在查看的这一条对话
     • 从页面 URL（.../c/<uuid>）解析对话 ID，复用 getConversation
     • 打包为单个 ZIP 下载（含 JSON + Markdown），避免多文件下载被拦截
-    • 仅在对话页面显示该入口（导出对话框顶部）
+    • 页面内“导出此对话”悬浮按钮（输入框上方居中，随路由自动显隐）
+    • 同时保留导出对话框顶部的“当前对话”入口
 
     v1.3.2 变更 (项目空间分页修复)
     ------------------------------------------------------------
@@ -415,6 +416,66 @@
             currentExportInFlight = false;
             setTimeout(() => setStatus('Export Conversations'), 3000);
         }
+    }
+
+    /**
+     * [新增] 页面内“导出此对话”悬浮按钮：固定定位在输入框上方居中处，
+     * 不依赖 ChatGPT 的 DOM 结构（不会因官方 UI 改版而失效）。
+     */
+    function getCurrentExportFloatingButton() {
+        let btn = document.getElementById('gpt-export-current-btn');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = 'gpt-export-current-btn';
+            btn.type = 'button';
+            btn.textContent = '⬇ 导出此对话';
+            Object.assign(btn.style, {
+                position: 'fixed', bottom: '96px', left: '50%', transform: 'translateX(-50%)',
+                zIndex: '99996', padding: '6px 14px', borderRadius: '999px', border: 'none',
+                cursor: 'pointer', fontWeight: 'bold', background: '#10a37f', color: '#fff',
+                fontSize: '13px', boxShadow: '0 2px 10px rgba(0,0,0,.18)', userSelect: 'none',
+                display: 'none'
+            });
+            btn.onclick = async () => {
+                const original = btn.textContent;
+                btn.disabled = true;
+                btn.style.opacity = '0.7';
+                btn.textContent = '⏳ 导出中…';
+                try {
+                    await exportCurrentConversation();
+                } finally {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    btn.textContent = original;
+                }
+            };
+            document.body.appendChild(btn);
+        }
+        return btn;
+    }
+
+    function syncCurrentExportFloatingButton() {
+        if (!document.body) return;
+        getCurrentExportFloatingButton().style.display = getCurrentConversationId() ? 'block' : 'none';
+    }
+
+    // 监听 ChatGPT 单页应用的路由变化（pushState / replaceState / 前进后退），及时显隐悬浮按钮。
+    function installCurrentExportFloatingButton() {
+        const wrap = (name) => {
+            const orig = history[name];
+            if (typeof orig !== 'function' || orig.__cgptExporterWrapped) return;
+            const wrapped = function () {
+                const ret = orig.apply(this, arguments);
+                syncCurrentExportFloatingButton();
+                return ret;
+            };
+            wrapped.__cgptExporterWrapped = true;
+            history[name] = wrapped;
+        };
+        wrap('pushState');
+        wrap('replaceState');
+        window.addEventListener('popstate', syncCurrentExportFloatingButton);
+        syncCurrentExportFloatingButton();
     }
 
     // --- 导出流程核心逻辑 ---
@@ -1466,6 +1527,8 @@
 
     document.documentElement.setAttribute('data-chatgpt-exporter-ready', '1');
     window.dispatchEvent(new CustomEvent('CHATGPT_EXPORTER_READY'));
+
+    installCurrentExportFloatingButton();
 
     window.addEventListener('message', (event) => {
         if (event.source !== window) return;
