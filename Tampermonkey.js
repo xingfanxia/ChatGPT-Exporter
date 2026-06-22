@@ -21,7 +21,7 @@
     • 新增“导出当前对话”：一键导出当前正在查看的这一条对话
     • 从页面 URL（.../c/<uuid>）解析对话 ID，复用 getConversation
     • 打包为单个 ZIP 下载（含 JSON + Markdown），避免多文件下载被拦截
-    • 页面内“导出此对话”悬浮按钮（输入框上方居中，随路由自动显隐）
+    • 页面内“导出此对话”悬浮按钮（输入框右上方，随路由自动显隐）
     • 同时保留导出对话框顶部的“当前对话”入口
 
     v1.3.2 变更 (项目空间分页修复)
@@ -419,7 +419,7 @@
     }
 
     /**
-     * [新增] 页面内“导出此对话”悬浮按钮：固定定位在输入框上方居中处，
+     * [新增] 页面内“导出此对话”悬浮按钮：固定定位在输入框右上方，
      * 不依赖 ChatGPT 的 DOM 结构（不会因官方 UI 改版而失效）。
      */
     function getCurrentExportFloatingButton() {
@@ -430,7 +430,7 @@
             btn.type = 'button';
             btn.textContent = '⬇ 导出此对话';
             Object.assign(btn.style, {
-                position: 'fixed', bottom: '96px', left: '50%', transform: 'translateX(-50%)',
+                position: 'fixed', bottom: '96px', right: '24px',
                 zIndex: '99996', padding: '6px 14px', borderRadius: '999px', border: 'none',
                 cursor: 'pointer', fontWeight: 'bold', background: '#10a37f', color: '#fff',
                 fontSize: '13px', boxShadow: '0 2px 10px rgba(0,0,0,.18)', userSelect: 'none',
