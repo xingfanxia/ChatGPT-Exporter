@@ -1,9 +1,11 @@
 (function injectExporter() {
-    if (window.__CHATGPT_EXPORTER_INJECTED__) return;
-    window.__CHATGPT_EXPORTER_INJECTED__ = true;
+    const EXPECTED_VERSION = '1.5.0';
+    const activeVersion = document.documentElement.getAttribute('data-chatgpt-exporter-version');
+    if (window.__CHATGPT_EXPORTER_INJECTED__ === EXPECTED_VERSION && activeVersion === EXPECTED_VERSION) return;
+    window.__CHATGPT_EXPORTER_INJECTED__ = EXPECTED_VERSION;
 
-    // Prevent double injection if the page script is already running
-    if (document.documentElement.getAttribute('data-chatgpt-exporter-ready') === '1') {
+    // Only skip when the page is already running this exact version.
+    if (activeVersion === EXPECTED_VERSION) {
         return;
     }
 
@@ -21,4 +23,3 @@
     };
     document.documentElement.appendChild(jszipScript);
 })();
-

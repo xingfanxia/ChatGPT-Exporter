@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Universal Exporter",
-  "description": "Auto-export ChatGPT conversations (personal/team/project) as JSON+Markdown with scheduled reminders.",
-  "version": "1.4.0",
+  "description": "Export ChatGPT conversations, uploads, and generated files as JSON+Markdown ZIP backups with scheduled reminders.",
+  "version": "1.5.0",
   "permissions": [
     "storage",
     "alarms",

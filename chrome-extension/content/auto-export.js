@@ -1,6 +1,7 @@
 (function () {
     const EXPORT_READY_EVENT = 'CHATGPT_EXPORTER_READY';
     const COMMAND_TYPE = 'CHATGPT_EXPORTER_COMMAND';
+    const EXPECTED_VERSION = '1.5.0';
     let exporterReady = false;
     const pendingCommands = [];
 
@@ -30,22 +31,27 @@
         }
     }
 
-    if (document.documentElement.getAttribute('data-chatgpt-exporter-ready') === '1') {
+    if (document.documentElement.getAttribute('data-chatgpt-exporter-version') === EXPECTED_VERSION) {
         markReady();
     }
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message?.type === 'OPEN_EXPORT_DIALOG') {
             queueCommand('OPEN_DIALOG');
-            sendResponse({ ok: true });
+            sendResponse({
+                ok: true,
+                version: document.documentElement.getAttribute('data-chatgpt-exporter-version')
+            });
             return true;
         }
         if (message?.type === 'EXPORT_CURRENT_PAGE') {
             queueCommand('EXPORT_CURRENT');
-            sendResponse({ ok: true });
+            sendResponse({
+                ok: true,
+                version: document.documentElement.getAttribute('data-chatgpt-exporter-version')
+            });
             return true;
         }
         return false;
     });
 })();
-

@@ -1,6 +1,8 @@
 import { normalizeSettings, calculateNextTrigger } from '../utils/schedule.js';
 import { storage, tabs } from '../utils/chrome-helpers.js';
 
+const EXPECTED_EXPORTER_VERSION = '1.5.0';
+
 const nextRunEl = document.getElementById('next-run');
 const reminderNoteEl = document.getElementById('reminder-note');
 const openDialogBtn = document.getElementById('open-dialog-btn');
@@ -69,8 +71,8 @@ async function triggerExport(messageType) {
         return message.includes('Receiving end does not exist') || message.includes('Could not establish connection');
     };
     try {
-        await tabs.sendMessage(tab.id, { type: messageType });
-        return;
+        const response = await tabs.sendMessage(tab.id, { type: messageType });
+        if (response?.version === EXPECTED_EXPORTER_VERSION) return;
     } catch (error) {
         if (!isNoReceiverError(error)) {
             console.warn('Failed to reach content scripts, retrying after injection...', error);
@@ -82,8 +84,11 @@ async function triggerExport(messageType) {
             target: { tabId: tab.id },
             files: ['content/inject-exporter.js', 'content/auto-export.js']
         });
-        await new Promise(resolve => setTimeout(resolve, 200));
-        await tabs.sendMessage(tab.id, { type: messageType });
+        await new Promise(resolve => setTimeout(resolve, 400));
+        const response = await tabs.sendMessage(tab.id, { type: messageType });
+        if (response?.version !== EXPECTED_EXPORTER_VERSION) {
+            throw new Error(`页面仍在运行旧版导出器 (${response?.version || 'unknown'})`);
+        }
     } catch (retryError) {
         alert('无法连接到页面脚本。请尝试刷新 ChatGPT 页面后再试。');
         console.error('Retry failed:', retryError);

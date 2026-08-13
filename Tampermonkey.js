@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Universal Exporter (Markdown Support)
-// @version      1.4.0
-// @description  User-centric ZIP exporter for personal/team/project spaces. Supports JSON & Markdown formats. Based on ChatGPT Universal Exporter.
+// @version      1.5.0
+// @description  Export ChatGPT conversations with visible uploads and generated files as JSON+Markdown ZIP backups.
 // @author       huhu
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,6 +16,12 @@
 // ==/UserScript==
 
 /* ============================================================
+    v1.5.0 变更 (附件与生成文件导出)
+    ------------------------------------------------------------
+    • 将用户上传附件、可见图片和 ChatGPT 生成文件一并打包
+    • Markdown 中的附件链接改写为 ZIP 内的相对路径
+    • 生成 attachment-export-report.json 记录成功与失败项
+
     v1.4.0 变更 (导出当前对话)
     ------------------------------------------------------------
     • 新增“导出当前对话”：一键导出当前正在查看的这一条对话
@@ -24,11 +30,12 @@
     • 页面内“导出此对话”悬浮按钮（输入框右上方，随路由自动显隐）
     • 同时保留导出对话框顶部的“当前对话”入口
 
-    v1.3.2 变更 (项目空间分页修复)
+    v1.3.2 变更 (项目空间分页修复)
     ------------------------------------------------------------
     • 项目空间列表显式使用 limit=50 拉取
     • 支持根据 cursor 分页获取全部项目
     • 复用分页逻辑，避免默认只显示 5 个项目
+
     ========================================================== */
 
 (function () {
@@ -163,6 +170,310 @@
             : `${jsonName}.md`;
     }
 
+    const ATTACHMENT_EXPORT_VERSION = '1.5.0';
+    const DEFAULT_INCLUDE_ATTACHMENTS = true;
+    const EXPORT_BUTTON_LABEL = `Export Conversations v${ATTACHMENT_EXPORT_VERSION}`;
+    const MIME_EXTENSIONS = {
+        'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp',
+        'image/svg+xml': '.svg', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'video/mp4': '.mp4',
+        'application/pdf': '.pdf', 'application/zip': '.zip', 'application/json': '.json',
+        'text/plain': '.txt', 'text/markdown': '.md', 'text/csv': '.csv', 'text/html': '.html',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx'
+    };
+
+    function safeAttachmentName(value) {
+        let name = String(value || 'attachment');
+        try { name = decodeURIComponent(name); } catch (_) {}
+        name = name.split(/[\\/]/).pop() || 'attachment';
+        return name
+            .replace(/[\u0000-\u001f\u007f]/g, '')
+            .replace(/[\\/:*?"<>|]/g, '-')
+            .replace(/^[. ]+|[. ]+$/g, '')
+            .slice(0, 180) || 'attachment';
+    }
+
+    function addMimeExtension(filename, mimeType) {
+        if (/\.[a-z0-9]{1,10}$/i.test(filename)) return filename;
+        const mime = String(mimeType || '').split(';')[0].trim().toLowerCase();
+        return filename + (MIME_EXTENSIONS[mime] || '');
+    }
+
+    function uniqueAttachmentName(filename, usedNames) {
+        const safe = safeAttachmentName(filename);
+        if (!usedNames.has(safe)) {
+            usedNames.add(safe);
+            return safe;
+        }
+        const dot = safe.lastIndexOf('.');
+        const base = dot > 0 ? safe.slice(0, dot) : safe;
+        const extension = dot > 0 ? safe.slice(dot) : '';
+        let index = 2;
+        while (usedNames.has(`${base}_${index}${extension}`)) index++;
+        const result = `${base}_${index}${extension}`;
+        usedNames.add(result);
+        return result;
+    }
+
+    function extractFileId(pointer) {
+        if (typeof pointer !== 'string') return null;
+        let decoded = pointer;
+        try { decoded = decodeURIComponent(pointer); } catch (_) {}
+        const schemeMatch = decoded.match(/^(?:file-service|sediment):\/\/([^/?#]+)/i);
+        if (schemeMatch) return schemeMatch[1];
+        const match = decoded.match(/file[-_][a-z0-9]+/i);
+        return match ? match[0] : null;
+    }
+
+    function classifyAssetReference(role, contentType) {
+        if (role === 'user') return 'upload';
+        if (/image/i.test(contentType)) return 'generated_image';
+        if (/canvas/i.test(contentType)) return 'canvas';
+        return 'generated_file';
+    }
+
+    function defaultAssetName(kind, fileId) {
+        if (kind === 'generated_image') return 'generated_image';
+        if (kind === 'canvas') return 'canvas_artifact';
+        if (kind === 'generated_file') return 'generated_file';
+        return fileId || 'attachment';
+    }
+
+    function collectVisibleAttachments(convData) {
+        const references = new Map();
+        const add = (reference) => {
+            const key = reference.kind === 'sandbox'
+                ? `sandbox:${reference.messageId}:${reference.sandboxPath}`
+                : `file:${reference.fileId}`;
+            if (!references.has(key)) references.set(key, reference);
+        };
+
+        Object.values(convData?.mapping || {}).forEach(node => {
+            const message = node?.message;
+            if (!message) return;
+            const role = message.author?.role;
+            if (role !== 'user' && role !== 'assistant' && role !== 'tool') return;
+            if (message.metadata?.is_visually_hidden_from_conversation ||
+                message.metadata?.is_contextual_answers_system_message) return;
+
+            if (Array.isArray(message.metadata?.attachments)) {
+                message.metadata.attachments.forEach(attachment => {
+                    const fileId = attachment?.id || attachment?.file_id;
+                    if (!fileId) return;
+                    const mimeType = attachment.mime_type || attachment.content_type || '';
+                    add({
+                        kind: role === 'user' ? 'upload' : 'generated_file',
+                        source: 'metadata.attachments', fileId, messageId: message.id,
+                        ownerRole: role,
+                        name: attachment.name || attachment.file_name || fileId,
+                        mimeType,
+                        isImage: /^image\//i.test(mimeType)
+                    });
+                });
+            }
+
+            const addAssetPointer = (asset, source, inheritedContentType = '') => {
+                if (!asset || typeof asset !== 'object' || !asset.asset_pointer) return;
+                const fileId = extractFileId(asset.asset_pointer);
+                if (!fileId) return;
+                const contentType = asset.content_type || inheritedContentType || '';
+                const kind = classifyAssetReference(role, contentType);
+                const mimeType = asset.mime_type || asset.metadata?.mime_type || '';
+                add({
+                    kind, source, fileId, messageId: message.id, ownerRole: role,
+                    name: asset.name || asset.file_name || asset.metadata?.file_name ||
+                        asset.metadata?.title || defaultAssetName(kind, fileId),
+                    mimeType,
+                    isImage: /image/i.test(contentType) || /^image\//i.test(mimeType)
+                });
+            };
+
+            addAssetPointer(message.content, 'content.asset_pointer', message.content?.content_type);
+            (Array.isArray(message.content?.parts) ? message.content.parts : []).forEach(part => {
+                if (part && typeof part === 'object') {
+                    addAssetPointer(part, 'content.parts.asset_pointer', message.content?.content_type);
+                }
+                const text = typeof part === 'string' ? part : part?.text;
+                if (role !== 'assistant' || typeof text !== 'string') return;
+                for (const match of text.matchAll(/\]\((sandbox:[^)]+)\)/gi)) {
+                    const sandboxPath = match[1];
+                    const pathWithoutQuery = sandboxPath.replace(/[?#].*$/, '');
+                    add({
+                        kind: 'sandbox', source: 'markdown.sandbox_link', sandboxPath,
+                        messageId: message.id, ownerRole: role,
+                        name: pathWithoutQuery.split('/').pop() || 'generated_file',
+                        mimeType: '',
+                        isImage: /\.(?:png|jpe?g|gif|webp|svg)$/i.test(pathWithoutQuery)
+                    });
+                }
+            });
+        });
+        return Array.from(references.values());
+    }
+
+    function attachmentHeaders(workspaceId) {
+        const headers = { 'Authorization': `Bearer ${accessToken}` };
+        const deviceId = getOaiDeviceId();
+        if (deviceId) headers['oai-device-id'] = deviceId;
+        const resolvedWorkspaceId = resolveWorkspaceId(workspaceId);
+        if (resolvedWorkspaceId) headers['ChatGPT-Account-Id'] = resolvedWorkspaceId;
+        return headers;
+    }
+
+    function filenameFromContentDisposition(value) {
+        if (!value) return '';
+        const encoded = value.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+        if (encoded) {
+            try { return decodeURIComponent(encoded[1].trim().replace(/^"|"$/g, '')); } catch (_) {}
+        }
+        const plain = value.match(/filename\s*=\s*(?:"([^"]+)"|([^;]+))/i);
+        return (plain?.[1] || plain?.[2] || '').trim();
+    }
+
+    async function fetchAttachmentResponse(url, options) {
+        let response;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            response = await fetch(url, options);
+            const retryable = response.status === 429 || response.status >= 500;
+            if (!retryable || attempt === 2) return response;
+            try { await response.body?.cancel(); } catch (_) {}
+            const retryAfter = Number(response.headers.get('retry-after'));
+            const delay = Number.isFinite(retryAfter) && retryAfter > 0
+                ? Math.min(retryAfter * 1000, 10000)
+                : 500 * (attempt + 1);
+            await sleep(delay);
+        }
+        return response;
+    }
+
+    async function resolveAttachmentDownload(metadataUrls, headers) {
+        let lastError = null;
+        for (const metadataUrl of metadataUrls) {
+            const response = await fetchAttachmentResponse(metadataUrl, { credentials: 'include', headers });
+            if (!response.ok) {
+                lastError = new Error(`metadata HTTP ${response.status}`);
+                if (response.status === 401) break;
+                continue;
+            }
+            const contentType = response.headers.get('content-type') || '';
+            if (!/json/i.test(contentType)) return { directResponse: response, metadata: {} };
+
+            const metadata = await response.json();
+            const downloadUrl = metadata.download_url || metadata.url;
+            if (downloadUrl) return { downloadUrl, metadata };
+            lastError = new Error(metadata.error || metadata.detail || 'download_url missing or expired');
+        }
+        throw lastError || new Error('attachment metadata unavailable');
+    }
+
+    async function fetchAttachmentBinary(reference, convData, workspaceId, projectId = null) {
+        const headers = attachmentHeaders(workspaceId);
+        const conversationId = convData?.conversation_id || convData?.id;
+        const resolvedProjectId = projectId || convData?.gizmo_id || convData?.project_id ||
+            convData?.metadata?.gizmo_id || null;
+        const metadataUrls = [];
+        if (reference.kind === 'sandbox') {
+            if (!conversationId || !reference.messageId) throw new Error('missing conversation/message id');
+            const query = new URLSearchParams({
+                message_id: reference.messageId,
+                sandbox_path: reference.sandboxPath.replace(/^sandbox:/i, '')
+            });
+            metadataUrls.push(`/backend-api/conversation/${encodeURIComponent(conversationId)}/interpreter/download?${query}`);
+        } else {
+            const fileId = encodeURIComponent(reference.fileId);
+            if (conversationId) {
+                const query = new URLSearchParams({ conversation_id: conversationId, inline: 'false' });
+                metadataUrls.push(`/backend-api/files/download/${fileId}?${query}`);
+            }
+            if (resolvedProjectId) {
+                const query = new URLSearchParams({ gizmo_id: resolvedProjectId, inline: 'false' });
+                metadataUrls.push(`/backend-api/files/download/${fileId}?${query}`);
+            }
+            metadataUrls.push(`/backend-api/files/download/${fileId}?inline=false`);
+            metadataUrls.push(`/backend-api/files/${fileId}/download`);
+            if (conversationId) {
+                metadataUrls.push(`/backend-api/conversation/${encodeURIComponent(conversationId)}/attachment/${fileId}/download`);
+            }
+        }
+
+        const resolved = await resolveAttachmentDownload(Array.from(new Set(metadataUrls)), headers);
+        let response = resolved.directResponse;
+        if (!response) {
+            const parsedUrl = new URL(resolved.downloadUrl, location.origin);
+            const sameOrigin = parsedUrl.origin === location.origin;
+            response = await fetchAttachmentResponse(parsedUrl.href, sameOrigin
+                ? { credentials: 'include', headers }
+                : {});
+            if (!response.ok) throw new Error(`binary HTTP ${response.status}`);
+        }
+
+        const mimeType = response.headers.get('content-type') || reference.mimeType || '';
+        const filename = addMimeExtension(
+            safeAttachmentName(
+                resolved.metadata?.file_name || resolved.metadata?.filename ||
+                filenameFromContentDisposition(response.headers.get('content-disposition')) || reference.name
+            ),
+            mimeType
+        );
+        return { data: new Uint8Array(await response.arrayBuffer()), filename };
+    }
+
+    function encodeRelativePath(path) {
+        return path.split('/').map(segment => encodeURIComponent(segment)).join('/');
+    }
+
+    async function appendAttachmentsToZip(target, convData, workspaceId, projectId = null) {
+        const references = collectVisibleAttachments(convData);
+        const failures = [];
+        const files = [];
+        const sandboxPaths = new Map();
+        const usedNames = new Set();
+        const folderName = generateUniqueFilename(convData).replace(/\.json$/i, '') + '_files';
+
+        for (const reference of references) {
+            try {
+                const downloaded = await fetchAttachmentBinary(reference, convData, workspaceId, projectId);
+                const filename = uniqueAttachmentName(downloaded.filename, usedNames);
+                target.folder(folderName).file(filename, downloaded.data);
+                const relativePath = encodeRelativePath(`${folderName}/${filename}`);
+                files.push({
+                    name: filename,
+                    path: relativePath,
+                    kind: reference.kind,
+                    source: reference.source,
+                    fileId: reference.fileId || null,
+                    isImage: reference.isImage,
+                    messageId: reference.messageId,
+                    ownerRole: reference.ownerRole
+                });
+                if (reference.kind === 'sandbox') {
+                    sandboxPaths.set(`${reference.messageId}|${reference.sandboxPath}`, relativePath);
+                }
+            } catch (error) {
+                failures.push({
+                    kind: reference.kind,
+                    file_id: reference.fileId || null,
+                    sandbox_path: reference.sandboxPath || null,
+                    message_id: reference.messageId || null,
+                    name: reference.name,
+                    error: error?.message || String(error)
+                });
+            }
+            await sleep(150);
+        }
+        return { detected: references.length, files, failures, sandboxPaths };
+    }
+
+    function replaceDownloadedSandboxLinks(text, sandboxPaths, messageId) {
+        if (!text || !sandboxPaths) return text;
+        return text.replace(/\]\((sandbox:[^)]+)\)/gi, (match, sandboxPath) => {
+            const localPath = sandboxPaths.get(`${messageId}|${sandboxPath}`);
+            return localPath ? `](${localPath})` : match;
+        });
+    }
+
+
     function cleanMessageContent(text) {
         if (!text) return '';
         return text
@@ -254,7 +565,7 @@
         return { text: output, footnotes };
     }
 
-    function extractConversationMessages(convData) {
+    function extractConversationMessages(convData, attachmentResult = null) {
         const mapping = convData?.mapping;
         if (!mapping) return [];
 
@@ -276,9 +587,9 @@
                 const author = msg.author?.role;
                 const isHidden = msg.metadata?.is_visually_hidden_from_conversation ||
                     msg.metadata?.is_contextual_answers_system_message;
-                if (author && author !== 'system' && !isHidden) {
+                if ((author === 'user' || author === 'assistant') && !isHidden) {
                     const content = msg.content;
-                    if (content?.content_type === 'text' && Array.isArray(content.parts)) {
+                    if ((content?.content_type === 'text' || content?.content_type === 'multimodal_text') && Array.isArray(content.parts)) {
                         const rawText = content.parts
                             .map(part => typeof part === 'string' ? part : (part?.text ?? ''))
                             .filter(Boolean)
@@ -291,11 +602,21 @@
                             processedText = processed.text;
                             footnotes = processed.footnotes;
                         }
-                        const cleaned = cleanMessageContent(processedText);
-                        if (cleaned) {
+                        const cleaned = cleanMessageContent(
+                            replaceDownloadedSandboxLinks(processedText, attachmentResult?.sandboxPaths, msg.id)
+                        );
+                        const attachmentLines = (attachmentResult?.files || [])
+                            .filter(file => file.messageId === msg.id && file.kind !== 'sandbox')
+                            .map(file => {
+                                const label = file.name.replace(/[\[\]]/g, '\\$&');
+                                return file.isImage ? `![${label}](${file.path})` : `📎 [${label}](${file.path})`;
+                            });
+                        const renderedContent = [cleaned, ...attachmentLines].filter(Boolean).join('\n\n');
+                        if (renderedContent) {
                             messages.push({
                                 role: author,
-                                content: cleaned,
+                                content: renderedContent,
+                                messageId: msg.id,
                                 create_time: msg.create_time || null,
                                 footnotes
                             });
@@ -318,13 +639,11 @@
         return messages;
     }
 
-    function convertConversationToMarkdown(convData) {
-        const messages = extractConversationMessages(convData);
-        if (messages.length === 0) {
-            return '# Conversation\nNo visible user or assistant messages were exported.\n';
-        }
-
-        const mdLines = [];
+    function convertConversationToMarkdown(convData, attachmentResult = null) {
+        const messages = extractConversationMessages(convData, attachmentResult);
+        const mdLines = messages.length === 0
+            ? ['# Conversation', 'No visible user or assistant messages were exported.', '']
+            : [];
         messages.forEach(msg => {
             const roleLabel = msg.role === 'user' ? '# User' : '# Assistant';
             mdLines.push(roleLabel);
@@ -342,6 +661,18 @@
             }
             mdLines.push('');
         });
+
+        const renderedMessageIds = new Set(messages.map(message => message.messageId).filter(Boolean));
+        const additionalFiles = (attachmentResult?.files || [])
+            .filter(file => file.kind !== 'sandbox' && !renderedMessageIds.has(file.messageId));
+        if (additionalFiles.length > 0) {
+            mdLines.push('# Attachments', '');
+            additionalFiles.forEach(file => {
+                const label = file.name.replace(/[\[\]]/g, '\\$&');
+                mdLines.push(file.isImage ? `![${label}](${file.path})` : `- [${label}](${file.path})`);
+            });
+            mdLines.push('');
+        }
 
         return mdLines.join('\n').trim() + '\n';
     }
@@ -375,7 +706,7 @@
      * 打包为单个 ZIP（含 JSON + Markdown），与批量导出保持一致：
      * 既避免浏览器“下载多个文件”拦截导致第二个文件被静默丢弃，也让“完成”提示真实可信。
      */
-    async function exportCurrentConversation() {
+    async function exportCurrentConversation(includeAttachments = DEFAULT_INCLUDE_ATTACHMENTS) {
         // 仅在浮动状态按钮已存在时更新它，避免从弹窗触发时凭空向页面注入按钮。
         const setStatus = (text) => {
             const b = document.getElementById('gpt-rescue-btn');
@@ -400,13 +731,16 @@
 
             const zip = new JSZip();
             const jsonName = generateUniqueFilename(convData);
-            zip.file(jsonName, JSON.stringify(convData, null, 2));
-            zip.file(generateMarkdownFilename(convData), convertConversationToMarkdown(convData));
+            const attachmentReport = includeAttachments ? createAttachmentReport() : null;
+            await addConversationToZip(zip, convData, null, attachmentReport, getCurrentProjectId());
+            if (attachmentReport) {
+                zip.file('attachment-export-report.json', JSON.stringify(attachmentReport, null, 2));
+            }
             const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
             const zipName = `${jsonName.endsWith('.json') ? jsonName.slice(0, -5) : jsonName}.zip`;
             downloadFile(blob, zipName);
 
-            alert('✅ 当前对话导出完成！');
+            alert(`✅ 当前对话导出完成！${formatAttachmentSummary(attachmentReport)}`);
             setStatus('✅ 完成');
         } catch (e) {
             console.error('导出当前对话失败:', e);
@@ -414,8 +748,13 @@
             setStatus('⚠️ Error');
         } finally {
             currentExportInFlight = false;
-            setTimeout(() => setStatus('Export Conversations'), 3000);
+            setTimeout(() => setStatus(EXPORT_BUTTON_LABEL), 3000);
         }
+    }
+
+    function getCurrentProjectId() {
+        const match = (location.pathname || '').match(/\/g\/(g-p-[^/]+)\/c\//i);
+        return match ? match[1] : null;
     }
 
     /**
@@ -485,25 +824,69 @@
             btn = document.createElement('button');
             btn.id = 'gpt-rescue-btn';
             btn.style.display = 'none';
-            btn.textContent = 'Export Conversations';
+            btn.textContent = EXPORT_BUTTON_LABEL;
             document.body.appendChild(btn);
         }
         return btn;
     }
 
+    function createAttachmentReport() {
+        return {
+            exporter_version: ATTACHMENT_EXPORT_VERSION,
+            generated_at: new Date().toISOString(),
+            detected: 0,
+            downloaded: 0,
+            failed: 0,
+            conversations: []
+        };
+    }
+
+    function formatAttachmentSummary(report) {
+        return report
+            ? `\n附件：检测 ${report.detected}，成功 ${report.downloaded}，失败 ${report.failed}。`
+            : '';
+    }
+
+    async function addConversationToZip(target, convData, workspaceId, report = null, projectId = null) {
+        target.file(generateUniqueFilename(convData), JSON.stringify(convData, null, 2));
+        if (!report) {
+            target.file(generateMarkdownFilename(convData), convertConversationToMarkdown(convData));
+            return;
+        }
+        const attachmentResult = await appendAttachmentsToZip(target, convData, workspaceId, projectId);
+        target.file(generateMarkdownFilename(convData), convertConversationToMarkdown(convData, attachmentResult));
+        report.detected += attachmentResult.detected;
+        report.downloaded += attachmentResult.files.length;
+        report.failed += attachmentResult.failures.length;
+        report.conversations.push({
+            conversation_id: convData?.conversation_id || null,
+            title: convData?.title || 'Untitled Conversation',
+            detected: attachmentResult.detected,
+            downloaded: attachmentResult.files,
+            failures: attachmentResult.failures
+        });
+    }
+
     async function exportConversations(options = {}) {
-        const { mode = 'personal', workspaceId = null, conversationEntries = null, exportType = null } = options;
+        const {
+            mode = 'personal',
+            workspaceId = null,
+            conversationEntries = null,
+            exportType = null,
+            includeAttachments = DEFAULT_INCLUDE_ATTACHMENTS
+        } = options;
         const btn = getExportButton();
         btn.disabled = true;
 
         if (!await ensureAccessToken()) {
             btn.disabled = false;
-            btn.textContent = 'Export Conversations';
+            btn.textContent = EXPORT_BUTTON_LABEL;
             return;
         }
 
         try {
             const zip = new JSZip();
+            const attachmentReport = includeAttachments ? createAttachmentReport() : null;
             if (Array.isArray(conversationEntries) && conversationEntries.length > 0) {
                 for (let i = 0; i < conversationEntries.length; i++) {
                     const entry = conversationEntries[i];
@@ -513,8 +896,7 @@
                     const target = entry?.projectTitle
                         ? zip.folder(sanitizeFilename(entry.projectTitle))
                         : zip;
-                    target.file(generateUniqueFilename(convData), JSON.stringify(convData, null, 2));
-                    target.file(generateMarkdownFilename(convData), convertConversationToMarkdown(convData));
+                    await addConversationToZip(target, convData, workspaceId, attachmentReport, entry?.projectId || null);
                     await sleep(jitter());
                 }
             } else {
@@ -523,8 +905,7 @@
                 for (let i = 0; i < orphanIds.length; i++) {
                     btn.textContent = `📥 根目录 (${i + 1}/${orphanIds.length})`;
                     const convData = await getConversation(orphanIds[i], workspaceId);
-                    zip.file(generateUniqueFilename(convData), JSON.stringify(convData, null, 2));
-                    zip.file(generateMarkdownFilename(convData), convertConversationToMarkdown(convData));
+                    await addConversationToZip(zip, convData, workspaceId, attachmentReport);
                     await sleep(jitter());
                 }
 
@@ -539,13 +920,15 @@
                     for (let i = 0; i < projectConvIds.length; i++) {
                         btn.textContent = `📥 ${project.title.substring(0,10)}... (${i + 1}/${projectConvIds.length})`;
                         const convData = await getConversation(projectConvIds[i], workspaceId);
-                        projectFolder.file(generateUniqueFilename(convData), JSON.stringify(convData, null, 2));
-                        projectFolder.file(generateMarkdownFilename(convData), convertConversationToMarkdown(convData));
+                        await addConversationToZip(projectFolder, convData, workspaceId, attachmentReport, project.id);
                         await sleep(jitter());
                     }
                 }
             }
 
+            if (attachmentReport) {
+                zip.file('attachment-export-report.json', JSON.stringify(attachmentReport, null, 2));
+            }
             btn.textContent = '📦 生成 ZIP 文件…';
             const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
             const date = new Date().toISOString().slice(0, 10);
@@ -565,7 +948,7 @@
                         : `chatgpt_personal_backup_${date}.zip`;
             }
             downloadFile(blob, filename);
-            alert(`✅ 导出完成！`);
+            alert(`✅ 导出完成！${formatAttachmentSummary(attachmentReport)}`);
             btn.textContent = '✅ 完成';
 
         } catch (e) {
@@ -575,41 +958,53 @@
         } finally {
             setTimeout(() => {
                 btn.disabled = false;
-                btn.textContent = 'Export Conversations';
+                btn.textContent = EXPORT_BUTTON_LABEL;
             }, 3000);
         }
     }
 
-    async function startExportProcess(mode, workspaceId) {
-        await exportConversations({ mode, workspaceId });
+    async function startExportProcess(mode, workspaceId, includeAttachments = DEFAULT_INCLUDE_ATTACHMENTS) {
+        await exportConversations({ mode, workspaceId, includeAttachments });
     }
 
-    async function startProjectSpaceExportProcess(workspaceId = null) {
+    async function startProjectSpaceExportProcess(workspaceId = null, includeAttachments = DEFAULT_INCLUDE_ATTACHMENTS) {
         try {
             const projectEntries = await listProjectSpaceConversations(workspaceId);
             if (projectEntries.length === 0) {
                 alert('未找到项目空间对话。');
                 return;
             }
-            await exportConversations({ mode: 'project', workspaceId, conversationEntries: projectEntries, exportType: 'full' });
+            await exportConversations({
+                mode: 'project',
+                workspaceId,
+                conversationEntries: projectEntries,
+                exportType: 'full',
+                includeAttachments
+            });
         } catch (err) {
             console.error('导出项目空间失败:', err);
             alert(`导出项目空间失败: ${err.message}`);
         }
     }
 
-    async function startSelectiveExportProcess(mode, workspaceId, conversationEntries) {
-        await exportConversations({ mode, workspaceId, conversationEntries });
+    async function startSelectiveExportProcess(mode, workspaceId, conversationEntries, includeAttachments = DEFAULT_INCLUDE_ATTACHMENTS) {
+        await exportConversations({ mode, workspaceId, conversationEntries, includeAttachments });
     }
 
     function startScheduledExport(options = {}) {
-        const { mode = 'personal', workspaceId = null, autoConfirm = false, source = 'schedule' } = options;
+        const {
+            mode = 'personal',
+            workspaceId = null,
+            autoConfirm = false,
+            source = 'schedule',
+            includeAttachments = DEFAULT_INCLUDE_ATTACHMENTS
+        } = options;
         const proceed = async () => {
             try {
                 if (mode === 'project') {
-                    await startProjectSpaceExportProcess(workspaceId);
+                    await startProjectSpaceExportProcess(workspaceId, includeAttachments);
                 } else {
-                    await startExportProcess(mode, workspaceId);
+                    await startExportProcess(mode, workspaceId, includeAttachments);
                 }
             } catch (err) {
                 console.error('[ChatGPT Exporter] 自动导出失败:', err);
@@ -956,7 +1351,7 @@
     }
 
     function showConversationPicker(options = {}) {
-        const { mode = 'personal', workspaceId = null } = options;
+        const { mode = 'personal', workspaceId = null, includeAttachments = DEFAULT_INCLUDE_ATTACHMENTS } = options;
         const existing = document.getElementById('export-dialog-overlay');
         if (existing) existing.remove();
 
@@ -990,7 +1385,8 @@
             pageSize: 100,
             visibleCount: 100,
             startDate: '',
-            endDate: ''
+            endDate: '',
+            includeAttachments: Boolean(includeAttachments)
         };
 
         const renderBase = () => {
@@ -1023,6 +1419,13 @@
                     <input id="filter-end-date" type="date" style="padding: 8px; border-radius: 6px; border: 1px solid #ccc;">
                     <button id="clear-date-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">清空日期</button>
                 </div>
+                <label style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb; cursor: pointer;">
+                    <input id="include-attachments-picker" type="checkbox" ${state.includeAttachments ? 'checked' : ''} style="margin-top: 2px;">
+                    <span>
+                        <strong style="display: block; font-size: 13px;">同时下载上传和生成的附件</strong>
+                        <span style="display: block; margin-top: 2px; color: #666; font-size: 12px;">默认开启；附件较多时会增加导出时间和 ZIP 体积。</span>
+                    </span>
+                </label>
                 <div id="conv-status" style="margin-bottom: 8px; font-size: 12px; color: #666;">正在加载列表...</div>
                 <div id="conv-list" style="max-height: 360px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #fff;"></div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
@@ -1043,6 +1446,7 @@
             const timeFieldSelect = dialog.querySelector('#filter-time-field');
             const startDateInput = dialog.querySelector('#filter-start-date');
             const endDateInput = dialog.querySelector('#filter-end-date');
+            const includeAttachmentsInput = dialog.querySelector('#include-attachments-picker');
             const clearDateBtn = dialog.querySelector('#clear-date-btn');
             const selectAllBtn = dialog.querySelector('#select-all-btn');
             const clearAllBtn = dialog.querySelector('#clear-all-btn');
@@ -1095,6 +1499,9 @@
                 applyFilters();
                 renderList();
             };
+            includeAttachmentsInput.onchange = (e) => {
+                state.includeAttachments = e.target.checked;
+            };
             selectAllBtn.onclick = () => {
                 state.filtered.forEach(item => state.selected.add(item.id));
                 renderList();
@@ -1105,13 +1512,13 @@
             };
             backBtn.onclick = () => {
                 closeDialog();
-                showExportDialog();
+                showExportDialog({ includeAttachments: state.includeAttachments });
             };
             exportBtn.onclick = async () => {
                 if (state.selected.size === 0) return;
                 const selectedList = state.list.filter(item => state.selected.has(item.id));
                 closeDialog();
-                await startSelectiveExportProcess(mode, workspaceId, selectedList);
+                await startSelectiveExportProcess(mode, workspaceId, selectedList, state.includeAttachments);
             };
         };
 
@@ -1286,7 +1693,7 @@
     /**
      * [重构] 多步骤、用户主导的导出对话框
      */
-    function showExportDialog() {
+    function showExportDialog(options = {}) {
         if (document.getElementById('export-dialog-overlay')) return;
 
         const overlay = document.createElement('div');
@@ -1308,6 +1715,7 @@
         const closeDialog = () => document.body.removeChild(overlay);
 
         let pendingTeamAction = null;
+        let includeAttachments = options.includeAttachments ?? DEFAULT_INCLUDE_ATTACHMENTS;
         const renderStep = (step, action = null) => {
             pendingTeamAction = action;
             let html = '';
@@ -1399,6 +1807,13 @@
                                         </div>
                                     </div>
                                 </div>
+                                <label style="display: flex; align-items: flex-start; gap: 8px; margin-top: 16px; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb; cursor: pointer;">
+                                    <input id="include-attachments" type="checkbox" ${includeAttachments ? 'checked' : ''} style="margin-top: 2px;">
+                                    <span>
+                                        <strong style="display: block; font-size: 13px;">同时下载上传和生成的附件</strong>
+                                        <span style="display: block; margin-top: 2px; color: #666; font-size: 12px;">默认开启；附件较多时会增加导出时间和 ZIP 体积。</span>
+                                    </span>
+                                </label>
                                 <div style="display: flex; justify-content: flex-end; margin-top: 24px;">
                                     <button id="cancel-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">取消</button>
                                 </div>`;
@@ -1414,23 +1829,27 @@
                 const currentBtn = document.getElementById('select-current-btn');
                 if (currentBtn) currentBtn.onclick = () => {
                     closeDialog();
-                    exportCurrentConversation();
+                    exportCurrentConversation(includeAttachments);
+                };
+                const includeAttachmentsInput = document.getElementById('include-attachments');
+                includeAttachmentsInput.onchange = (event) => {
+                    includeAttachments = event.target.checked;
                 };
                 document.getElementById('select-personal-btn').onclick = () => {
                     closeDialog();
-                    startExportProcess('personal', null);
+                    startExportProcess('personal', null, includeAttachments);
                 };
                 document.getElementById('select-personal-picker-btn').onclick = () => {
                     closeDialog();
-                    showConversationPicker({ mode: 'personal', workspaceId: null });
+                    showConversationPicker({ mode: 'personal', workspaceId: null, includeAttachments });
                 };
                 document.getElementById('select-project-btn').onclick = () => {
                     closeDialog();
-                    startProjectSpaceExportProcess();
+                    startProjectSpaceExportProcess(null, includeAttachments);
                 };
                 document.getElementById('select-project-picker-btn').onclick = () => {
                     closeDialog();
-                    showConversationPicker({ mode: 'project', workspaceId: null });
+                    showConversationPicker({ mode: 'project', workspaceId: null, includeAttachments });
                 };
                 const startTeamFlow = (action) => {
                     const detectedIds = detectAllWorkspaceIds();
@@ -1438,9 +1857,9 @@
                         const workspaceId = detectedIds[0];
                         closeDialog();
                         if (action === 'all') {
-                            startExportProcess('team', workspaceId);
+                            startExportProcess('team', workspaceId, includeAttachments);
                         } else {
-                            showConversationPicker({ mode: 'team', workspaceId });
+                            showConversationPicker({ mode: 'team', workspaceId, includeAttachments });
                         }
                         return;
                     }
@@ -1477,13 +1896,13 @@
                     const workspaceId = resolveWorkspaceId();
                     if (!workspaceId) return;
                     closeDialog();
-                    startExportProcess('team', workspaceId);
+                    startExportProcess('team', workspaceId, includeAttachments);
                 };
                 if (pickerBtn) pickerBtn.onclick = () => {
                     const workspaceId = resolveWorkspaceId();
                     if (!workspaceId) return;
                     closeDialog();
-                    showConversationPicker({ mode: 'team', workspaceId });
+                    showConversationPicker({ mode: 'team', workspaceId, includeAttachments });
                 };
             }
         };
@@ -1495,10 +1914,17 @@
     }
 
     function addBtn() {
-        if (document.getElementById('gpt-rescue-btn')) return;
+        const existing = document.getElementById('gpt-rescue-btn');
+        if (existing) {
+            existing.onclick = showExportDialog;
+            if (!existing.disabled) existing.textContent = EXPORT_BUTTON_LABEL;
+            existing.dataset.exporterVersion = ATTACHMENT_EXPORT_VERSION;
+            existing.title = `ChatGPT Exporter v${ATTACHMENT_EXPORT_VERSION}`;
+            return;
+        }
         const b = document.createElement('button');
         b.id = 'gpt-rescue-btn';
-        b.textContent = 'Export Conversations';
+        b.textContent = EXPORT_BUTTON_LABEL;
         Object.assign(b.style, {
             position: 'fixed', bottom: '24px', right: '24px', zIndex: '99997',
             padding: '10px 14px', borderRadius: '8px', border: 'none', cursor: 'pointer',
@@ -1506,6 +1932,8 @@
             boxShadow: '0 3px 12px rgba(0,0,0,.15)', userSelect: 'none'
         });
         b.onclick = showExportDialog;
+        b.dataset.exporterVersion = ATTACHMENT_EXPORT_VERSION;
+        b.title = `ChatGPT Exporter v${ATTACHMENT_EXPORT_VERSION}`;
         document.body.appendChild(b);
     }
 
@@ -1513,19 +1941,33 @@
     setTimeout(addBtn, 2000);
 
     window.ChatGPTExporter = window.ChatGPTExporter || {};
+    const previousRuntimeVersion = document.documentElement.getAttribute('data-chatgpt-exporter-version');
+    if (previousRuntimeVersion !== ATTACHMENT_EXPORT_VERSION) {
+        document.getElementById('export-dialog-overlay')?.remove();
+    }
     Object.assign(window.ChatGPTExporter, {
+        version: ATTACHMENT_EXPORT_VERSION,
         showDialog: showExportDialog,
         exportCurrent: exportCurrentConversation,
-        startManualExport: (mode = 'personal', workspaceId = null) => {
+        startManualExport: (mode = 'personal', workspaceId = null, includeAttachments = DEFAULT_INCLUDE_ATTACHMENTS) => {
             if (mode === 'project') {
-                return startProjectSpaceExportProcess(workspaceId);
+                return startProjectSpaceExportProcess(workspaceId, includeAttachments);
             }
-            return startExportProcess(mode, workspaceId);
+            return startExportProcess(mode, workspaceId, includeAttachments);
         },
         startScheduledExport
     });
 
     document.documentElement.setAttribute('data-chatgpt-exporter-ready', '1');
+    document.documentElement.setAttribute('data-chatgpt-exporter-version', ATTACHMENT_EXPORT_VERSION);
+    const runtimeButton = document.getElementById('gpt-rescue-btn');
+    if (runtimeButton) {
+        runtimeButton.onclick = showExportDialog;
+        if (!runtimeButton.disabled) runtimeButton.textContent = EXPORT_BUTTON_LABEL;
+        runtimeButton.dataset.exporterVersion = ATTACHMENT_EXPORT_VERSION;
+        runtimeButton.title = `ChatGPT Exporter v${ATTACHMENT_EXPORT_VERSION}`;
+    }
+    console.info(`[ChatGPT Exporter] runtime v${ATTACHMENT_EXPORT_VERSION} ready`);
     window.dispatchEvent(new CustomEvent('CHATGPT_EXPORTER_READY'));
 
     installCurrentExportFloatingButton();
@@ -1548,7 +1990,11 @@
                     api.exportCurrent();
                     break;
                 case 'START_MANUAL_EXPORT':
-                    api.startManualExport(data.payload?.mode, data.payload?.workspaceId);
+                    api.startManualExport(
+                        data.payload?.mode,
+                        data.payload?.workspaceId,
+                        data.payload?.includeAttachments ?? DEFAULT_INCLUDE_ATTACHMENTS
+                    );
                     break;
                 default:
                     console.warn('[ChatGPT Exporter] 未知命令:', data.action);
