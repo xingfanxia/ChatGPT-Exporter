@@ -1,7 +1,10 @@
 import { normalizeSettings, calculateNextTrigger } from '../utils/schedule.js';
 import { storage, tabs } from '../utils/chrome-helpers.js';
+import { createI18n } from '../utils/i18n.js';
+import { PAGE_MESSAGES, translatePage } from '../utils/page-messages.js';
 
-const EXPECTED_EXPORTER_VERSION = '1.5.0';
+const EXPECTED_EXPORTER_VERSION = '1.6.0';
+const i18n = createI18n(PAGE_MESSAGES);
 
 const nextRunEl = document.getElementById('next-run');
 const reminderNoteEl = document.getElementById('reminder-note');
@@ -17,7 +20,9 @@ const CONVERSATION_URL_RE = /^https:\/\/(?:[^/]*\.)?(?:chatgpt\.com|chat\.openai
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
-    const { settings } = await storage.get('settings');
+    const { settings, language } = await storage.get(['settings', 'language']);
+    i18n.setLanguage(language);
+    translatePage(i18n);
     const normalized = normalizeSettings(settings);
     renderSchedule(normalized);
     await refreshCurrentState();
@@ -25,17 +30,26 @@ async function init() {
     exportCurrentBtn.addEventListener('click', () => triggerExport('EXPORT_CURRENT_PAGE'));
     openDialogBtn.addEventListener('click', () => triggerExport('OPEN_EXPORT_DIALOG'));
     openOptionsBtn.addEventListener('click', () => chrome.runtime.openOptionsPage());
+
+    chrome.storage.onChanged.addListener(async (changes, area) => {
+        if (area !== 'sync' || (!changes.language && !changes.settings)) return;
+        const { settings, language } = await storage.get(['settings', 'language']);
+        i18n.setLanguage(language);
+        translatePage(i18n);
+        renderSchedule(normalizeSettings(settings));
+        await refreshCurrentState();
+    });
 }
 
 function renderSchedule(settings) {
     const nextTrigger = calculateNextTrigger(settings);
     if (!nextTrigger) {
-        nextRunEl.textContent = '未启用定时提醒';
+        nextRunEl.textContent = i18n.t('未启用定时提醒');
     } else {
         const date = new Date(nextTrigger);
-        nextRunEl.textContent = `下次提醒：${date.toLocaleString()}`;
+        nextRunEl.textContent = i18n.t('下次提醒：{date}', { date: date.toLocaleString(i18n.language) });
     }
-    reminderNoteEl.textContent = '提醒只负责通知，不会自动导出';
+    reminderNoteEl.textContent = i18n.t('提醒只负责通知，不会自动导出');
 }
 
 // 仅当活动标签页是一个具体对话页面时，才启用“导出当前对话”。
@@ -44,9 +58,9 @@ async function refreshCurrentState() {
     const onConversation = !!tab && CONVERSATION_URL_RE.test(tab.url || '');
     exportCurrentBtn.disabled = !onConversation;
     if (!tab) {
-        hintEl.textContent = '请先打开 chatgpt.com，再导出';
+        hintEl.textContent = i18n.t('请先打开 chatgpt.com，再导出');
     } else if (!onConversation) {
-        hintEl.textContent = '“导出当前对话”需在某个对话页面（.../c/...）使用';
+        hintEl.textContent = i18n.t('“导出当前对话”需在某个对话页面（.../c/...）使用');
     } else {
         hintEl.textContent = '';
     }
@@ -87,10 +101,10 @@ async function triggerExport(messageType) {
         await new Promise(resolve => setTimeout(resolve, 400));
         const response = await tabs.sendMessage(tab.id, { type: messageType });
         if (response?.version !== EXPECTED_EXPORTER_VERSION) {
-            throw new Error(`页面仍在运行旧版导出器 (${response?.version || 'unknown'})`);
+            throw new Error(i18n.t('页面仍在运行旧版导出器 ({version})', { version: response?.version || 'unknown' }));
         }
     } catch (retryError) {
-        alert('无法连接到页面脚本。请尝试刷新 ChatGPT 页面后再试。');
+        alert(i18n.t('无法连接到页面脚本。请尝试刷新 ChatGPT 页面后再试。'));
         console.error('Retry failed:', retryError);
     }
 }

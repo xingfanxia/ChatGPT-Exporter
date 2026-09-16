@@ -1,6 +1,157 @@
 (function () {
     'use strict';
 
+    // BEGIN GENERATED I18N
+    // UI language follows the browser's first preferred language. Unsupported
+    // languages use English; conversation content and export filenames are untouched.
+    function normalizeLanguage(value) {
+        return ['auto', 'zh-CN', 'en'].includes(value) ? value : 'auto';
+    }
+
+    function resolveLanguage(preference = 'auto', languages = globalThis.navigator?.languages) {
+        const normalized = normalizeLanguage(preference);
+        if (normalized !== 'auto') return normalized;
+        const primary = languages?.[0] || globalThis.navigator?.language || 'en';
+        return /^zh(?:-|_|$)/i.test(primary) ? 'zh-CN' : 'en';
+    }
+
+    function createI18n(messages, preference = 'auto') {
+        let selected = normalizeLanguage(preference);
+        return {
+            get preference() { return selected; },
+            get language() { return resolveLanguage(selected); },
+            setLanguage(value) { selected = normalizeLanguage(value); },
+            t(message, values = {}) {
+                const template = resolveLanguage(selected) === 'zh-CN' ? message : (messages[message] ?? message);
+                return template.replace(/\{(\w+)\}/g, (match, name) => Object.hasOwn(values, name) ? String(values[name]) : match);
+            }
+        };
+    }
+
+    // Chinese source messages map to English UI translations.
+    const exporterMessages = {
+        "导出对话": "Export conversations",
+        "语言": "Language",
+        "跟随浏览器": "Follow browser",
+        "无法获取 Access Token。请刷新页面或打开任意一个对话后再试。": "Unable to obtain an access token. Refresh the page or open a conversation and try again.",
+        "未检测到当前对话。请先打开一个具体的对话页面（地址形如 https://chatgpt.com/c/...）后再试。": "No current conversation found. Open a conversation (https://chatgpt.com/c/...) and try again.",
+        "📥 导出当前对话…": "📥 Exporting current conversation…",
+        "✅ 完成": "✅ Done",
+        "⚠️ 出错": "⚠️ Error",
+        "⬇ 导出此对话": "⬇ Export this conversation",
+        "⏳ 导出中…": "⏳ Exporting…",
+        "对话": "Conversation",
+        "📂 获取项目外对话…": "📂 Fetching conversations outside projects…",
+        "🔍 获取项目列表…": "🔍 Fetching projects…",
+        "📦 生成 ZIP 文件…": "📦 Creating ZIP…",
+        "未找到项目空间对话。": "No project conversations found.",
+        "团队空间": "Team workspace",
+        "项目空间": "Projects",
+        "个人空间": "Personal workspace",
+        "无法获取 oai-device-id，请确保已登录并刷新页面。": "Unable to obtain the device ID. Make sure you are signed in and refresh the page.",
+        "无法获取 Access Token，请刷新页面或打开任意一个对话后再试。": "Unable to obtain an access token. Refresh the page or open a conversation and try again.",
+        "选择要导出的对话": "Select conversations to export",
+        "空间：": "Workspace: ",
+        "搜索标题/项目名/ID": "Search title / project / ID",
+        "全部范围": "All locations",
+        "仅项目": "Projects only",
+        "仅项目外": "Outside projects only",
+        "全部状态": "All statuses",
+        "仅未归档": "Active only",
+        "仅已归档": "Archived only",
+        "按更新时间": "By updated date",
+        "按创建时间": "By created date",
+        "至": "to",
+        "清空日期": "Clear dates",
+        "同时下载上传和生成的附件": "Include uploaded and generated attachments",
+        "默认开启；附件较多时会增加导出时间和 ZIP 体积。": "Enabled by default. More attachments increase export time and ZIP size.",
+        "正在加载列表...": "Loading conversations…",
+        "全选": "Select all",
+        "清空": "Clear",
+        "返回": "Back",
+        "导出选中 (0)": "Export selected (0)",
+        "项目空间仅包含项目对话": "This view only includes project conversations",
+        "没有匹配的对话。": "No matching conversations.",
+        "创建": "Created",
+        "更新": "Updated",
+        "未知": "Unknown",
+        "已归档": "Archived",
+        "导出团队空间": "Export team workspace",
+        "🔎 检测到多个 Workspace，请选择一个:": "🔎 Multiple workspaces found. Choose one:",
+        "✅ 已自动检测到 Workspace ID:": "✅ Workspace ID detected:",
+        "⚠️ 未能自动检测到 Workspace ID。": "⚠️ No workspace ID detected.",
+        "请尝试刷新页面或打开一个团队对话，或在下方手动输入。": "Refresh the page, open a team conversation, or enter the ID below.",
+        "手动输入 Team Workspace ID:": "Enter team workspace ID:",
+        "粘贴您的 Workspace ID (ws-...)": "Paste your workspace ID (ws-...)",
+        "导出全部 (ZIP)": "Export all (ZIP)",
+        "选择对话导出": "Select conversations",
+        "当前对话": "Current conversation",
+        "仅导出当前正在查看的这一条对话（打包为 ZIP，含 JSON + Markdown）。": "Export only the conversation you are viewing as a ZIP with JSON + Markdown.",
+        "导出当前对话": "Export current conversation",
+        "选择要导出的空间": "Choose a workspace to export",
+        "导出您个人账户下的对话。": "Export conversations from your personal account.",
+        "导出全部": "Export all",
+        "导出项目空间下的对话，将按项目自动分组。": "Export project conversations, grouped by project.",
+        "导出团队空间下的对话，将自动检测ID。": "Export team conversations with automatic workspace detection.",
+        "取消": "Cancel",
+        "请选择或输入一个有效的 Team Workspace ID！": "Choose or enter a valid team workspace ID.",
+        "未命名对话": "Untitled conversation",
+        "未归档": "Active",
+        "✅ 当前对话导出完成！{summary}": "✅ Current conversation exported!{summary}",
+        "导出当前对话失败: {error}。详情请查看控制台（F12 -> Console）。": "Current conversation export failed: {error}. See the browser console for details.",
+        "\n附件：检测 {detected}，成功 {downloaded}，失败 {failed}。": "\nAttachments: {detected} detected, {downloaded} downloaded, {failed} failed.",
+        "📥 根目录 ({current}/{total})": "📥 Outside projects ({current}/{total})",
+        "📂 项目: {title}": "📂 Project: {title}",
+        "✅ 导出完成！{summary}": "✅ Export complete!{summary}",
+        "导出失败: {error}。详情请查看控制台（F12 -> Console）。": "Export failed: {error}. See the browser console for details.",
+        "导出项目空间失败: {error}": "Project export failed: {error}",
+        "Chrome 扩展请求导出 {workspace} 对话（来源: {source}）。是否开始？": "The extension requested an export from {workspace} (source: {source}). Start?",
+        "📂 项目外对话 ({status} p{page})": "📂 Outside projects ({status} p{page})",
+        "获取对话详情失败 conv {id} ({status})": "Unable to fetch conversation {id} ({status})",
+        "共 {total} 条，当前筛选 {filtered} 条，显示 {visible} 条，已选 {selected} 条": "{total} total · {filtered} matching · {visible} shown · {selected} selected",
+        "导出选中 ({count})": "Export selected ({count})",
+        "项目: {title}": "Project: {title}",
+        "加载更多（剩余 {count} 条）": "Load more ({count} remaining)",
+        "加载失败: {error}": "Loading failed: {error}",
+        "获取项目空间列表失败 ({status})": "Unable to fetch projects ({status})",
+        "列举项目对话列表失败 ({status})": "Unable to list project conversations ({status})",
+        "列举项目外对话列表失败 ({status})": "Unable to list conversations outside projects ({status})",
+        "列举对话列表失败 ({status})": "Unable to list conversations ({status})",
+        "列举项目空间对话列表失败 ({status})": "Unable to list project conversations ({status})"
+    };
+    // END GENERATED I18N
+
+    const LANGUAGE_KEY = 'chatgpt-exporter-language';
+    const extensionLanguage = document.documentElement.getAttribute('data-chatgpt-exporter-language');
+    let savedLanguage = extensionLanguage;
+    if (savedLanguage === null) {
+        try { savedLanguage = localStorage.getItem(LANGUAGE_KEY); } catch (_) { /* Storage may be disabled. */ }
+    }
+    const i18n = createI18n(exporterMessages, savedLanguage);
+    const t = i18n.t;
+    let renderLocalizedDialog = null;
+
+    function setLanguage(language, persist = false) {
+        i18n.setLanguage(language);
+        if (persist) {
+            if (document.documentElement.getAttribute('data-chatgpt-exporter-language') !== null) {
+                window.postMessage({ type: 'CHATGPT_EXPORTER_LANGUAGE_CHANGED', language: i18n.preference }, location.origin);
+            } else {
+                try { localStorage.setItem(LANGUAGE_KEY, i18n.preference); } catch (_) { /* Keep the selection for this page. */ }
+            }
+        }
+        const current = document.getElementById('gpt-export-current-btn');
+        if (current) current.textContent = t(current.disabled ? '⏳ 导出中…' : '⬇ 导出此对话');
+        const bulk = document.getElementById('gpt-rescue-btn');
+        if (bulk && !bulk.disabled) bulk.textContent = exportButtonLabel();
+        if (document.getElementById('export-dialog-overlay')) renderLocalizedDialog?.();
+    }
+    window.addEventListener('languagechange', () => setLanguage(i18n.preference));
+    window.addEventListener('storage', (event) => {
+        if (extensionLanguage === null && event.key === LANGUAGE_KEY) setLanguage(event.newValue);
+    });
+
+
     // --- 配置与全局变量 ---
     const BASE_DELAY = 600;
     const JITTER = 400;
@@ -63,7 +214,7 @@
                 return accessToken;
             }
         } catch (_) {}
-        alert('无法获取 Access Token。请刷新页面或打开任意一个对话后再试。');
+        alert(t("无法获取 Access Token。请刷新页面或打开任意一个对话后再试。"));
         return null;
     }
 
@@ -88,7 +239,7 @@
         const seconds = normalizeEpochSeconds(value);
         if (!seconds) return '';
         const date = new Date(seconds * 1000);
-        return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+        return Number.isNaN(date.getTime()) ? '' : date.toLocaleString(i18n.language);
     };
     const parseDateInputToEpoch = (value, isEnd = false) => {
         if (!value) return null;
@@ -129,9 +280,9 @@
             : `${jsonName}.md`;
     }
 
-    const ATTACHMENT_EXPORT_VERSION = '1.5.0';
+    const ATTACHMENT_EXPORT_VERSION = '1.6.0';
     const DEFAULT_INCLUDE_ATTACHMENTS = true;
-    const EXPORT_BUTTON_LABEL = `Export Conversations v${ATTACHMENT_EXPORT_VERSION}`;
+    const exportButtonLabel = () => `${t('导出对话')} v${ATTACHMENT_EXPORT_VERSION}`;
     const MIME_EXTENSIONS = {
         'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp',
         'image/svg+xml': '.svg', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'video/mp4': '.mp4',
@@ -677,12 +828,12 @@
         try {
             const convId = getCurrentConversationId();
             if (!convId) {
-                alert('未检测到当前对话。请先打开一个具体的对话页面（地址形如 https://chatgpt.com/c/...）后再试。');
+                alert(t("未检测到当前对话。请先打开一个具体的对话页面（地址形如 https://chatgpt.com/c/...）后再试。"));
                 return;
             }
             if (!await ensureAccessToken()) return;
 
-            setStatus('📥 导出当前对话…');
+            setStatus(t("📥 导出当前对话…"));
             // 复用 getConversation：workspaceId 传 null 时会从 _account Cookie / 检测结果解析当前空间，
             // 与当前页面所属账户保持一致（个人 / 团队 / 项目通用）。
             const convData = await getConversation(convId, null);
@@ -698,15 +849,15 @@
             const zipName = `${jsonName.endsWith('.json') ? jsonName.slice(0, -5) : jsonName}.zip`;
             downloadFile(blob, zipName);
 
-            alert(`✅ 当前对话导出完成！${formatAttachmentSummary(attachmentReport)}`);
-            setStatus('✅ 完成');
+            alert(t("✅ 当前对话导出完成！{summary}", { summary: formatAttachmentSummary(attachmentReport) }));
+            setStatus(t("✅ 完成"));
         } catch (e) {
             console.error('导出当前对话失败:', e);
-            alert(`导出当前对话失败: ${e.message}。详情请查看控制台（F12 -> Console）。`);
-            setStatus('⚠️ Error');
+            alert(t("导出当前对话失败: {error}。详情请查看控制台（F12 -> Console）。", { error: e.message }));
+            setStatus(t("⚠️ 出错"));
         } finally {
             currentExportInFlight = false;
-            setTimeout(() => setStatus(EXPORT_BUTTON_LABEL), 3000);
+            setTimeout(() => setStatus(exportButtonLabel()), 3000);
         }
     }
 
@@ -725,7 +876,7 @@
             btn = document.createElement('button');
             btn.id = 'gpt-export-current-btn';
             btn.type = 'button';
-            btn.textContent = '⬇ 导出此对话';
+            btn.textContent = t("⬇ 导出此对话");
             Object.assign(btn.style, {
                 position: 'fixed', bottom: '96px', right: '24px',
                 zIndex: '99996', padding: '6px 14px', borderRadius: '999px', border: 'none',
@@ -733,21 +884,21 @@
                 fontSize: '13px', boxShadow: '0 2px 10px rgba(0,0,0,.18)', userSelect: 'none',
                 display: 'none'
             });
-            btn.onclick = async () => {
-                const original = btn.textContent;
-                btn.disabled = true;
-                btn.style.opacity = '0.7';
-                btn.textContent = '⏳ 导出中…';
-                try {
-                    await exportCurrentConversation();
-                } finally {
-                    btn.disabled = false;
-                    btn.style.opacity = '1';
-                    btn.textContent = original;
-                }
-            };
             document.body.appendChild(btn);
         }
+        if (!btn.disabled) btn.textContent = t("⬇ 导出此对话");
+        btn.onclick = async () => {
+            btn.disabled = true;
+            btn.style.opacity = '0.7';
+            btn.textContent = t("⏳ 导出中…");
+            try {
+                await exportCurrentConversation();
+            } finally {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.textContent = t("⬇ 导出此对话");
+            }
+        };
         return btn;
     }
 
@@ -787,10 +938,10 @@
                 fontWeight: 'bold', background: '#10a37f', color: '#fff', fontSize: '14px',
                 boxShadow: '0 3px 12px rgba(0,0,0,.15)', userSelect: 'none'
             });
-            btn.textContent = EXPORT_BUTTON_LABEL;
+            btn.textContent = exportButtonLabel();
             document.body.appendChild(btn);
         }
-        if (!btn.disabled) btn.textContent = EXPORT_BUTTON_LABEL;
+        if (!btn.disabled) btn.textContent = exportButtonLabel();
         btn.onclick = showExportDialog;
         btn.dataset.exporterVersion = ATTACHMENT_EXPORT_VERSION;
         btn.title = `ChatGPT Exporter v${ATTACHMENT_EXPORT_VERSION}`;
@@ -810,7 +961,7 @@
 
     function formatAttachmentSummary(report) {
         return report
-            ? `\n附件：检测 ${report.detected}，成功 ${report.downloaded}，失败 ${report.failed}。`
+            ? t("\n附件：检测 {detected}，成功 {downloaded}，失败 {failed}。", { detected: report.detected, downloaded: report.downloaded, failed: report.failed })
             : '';
     }
 
@@ -847,7 +998,7 @@
 
         if (!await ensureAccessToken()) {
             btn.disabled = false;
-            btn.textContent = EXPORT_BUTTON_LABEL;
+            btn.textContent = exportButtonLabel();
             return;
         }
 
@@ -857,7 +1008,7 @@
             if (Array.isArray(conversationEntries) && conversationEntries.length > 0) {
                 for (let i = 0; i < conversationEntries.length; i++) {
                     const entry = conversationEntries[i];
-                    const label = entry?.title ? entry.title.slice(0, 12) : '对话';
+                    const label = entry?.title ? entry.title.slice(0, 12) : t("对话");
                     btn.textContent = `📥 ${label} (${i + 1}/${conversationEntries.length})`;
                     const convData = await getConversation(entry.id, workspaceId);
                     const target = entry?.projectTitle
@@ -867,20 +1018,20 @@
                     await sleep(jitter());
                 }
             } else {
-                btn.textContent = '📂 获取项目外对话…';
+                btn.textContent = t("📂 获取项目外对话…");
                 const orphanIds = await collectIds(btn, workspaceId, null);
                 for (let i = 0; i < orphanIds.length; i++) {
-                    btn.textContent = `📥 根目录 (${i + 1}/${orphanIds.length})`;
+                    btn.textContent = t("📥 根目录 ({current}/{total})", { current: i + 1, total: orphanIds.length });
                     const convData = await getConversation(orphanIds[i], workspaceId);
                     await addConversationToZip(zip, convData, workspaceId, attachmentReport);
                     await sleep(jitter());
                 }
 
-                btn.textContent = '🔍 获取项目列表…';
+                btn.textContent = t("🔍 获取项目列表…");
                 const projects = await getProjects(workspaceId);
                 for (const project of projects) {
                     const projectFolder = zip.folder(sanitizeFilename(project.title));
-                    btn.textContent = `📂 项目: ${project.title}`;
+                    btn.textContent = t("📂 项目: {title}", { title: project.title });
                     const projectConvIds = await collectIds(btn, workspaceId, project.id);
                     if (projectConvIds.length === 0) continue;
 
@@ -896,7 +1047,7 @@
             if (attachmentReport) {
                 zip.file('attachment-export-report.json', JSON.stringify(attachmentReport, null, 2));
             }
-            btn.textContent = '📦 生成 ZIP 文件…';
+            btn.textContent = t("📦 生成 ZIP 文件…");
             const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
             const date = new Date().toISOString().slice(0, 10);
             const selectionType = exportType || ((Array.isArray(conversationEntries) && conversationEntries.length > 0) ? 'selected' : 'full');
@@ -915,17 +1066,17 @@
                         : `chatgpt_personal_backup_${date}.zip`;
             }
             downloadFile(blob, filename);
-            alert(`✅ 导出完成！${formatAttachmentSummary(attachmentReport)}`);
-            btn.textContent = '✅ 完成';
+            alert(t("✅ 导出完成！{summary}", { summary: formatAttachmentSummary(attachmentReport) }));
+            btn.textContent = t("✅ 完成");
 
         } catch (e) {
             console.error("导出过程中发生严重错误:", e);
-            alert(`导出失败: ${e.message}。详情请查看控制台（F12 -> Console）。`);
-            btn.textContent = '⚠️ Error';
+            alert(t("导出失败: {error}。详情请查看控制台（F12 -> Console）。", { error: e.message }));
+            btn.textContent = t("⚠️ 出错");
         } finally {
             setTimeout(() => {
                 btn.disabled = false;
-                btn.textContent = EXPORT_BUTTON_LABEL;
+                btn.textContent = exportButtonLabel();
             }, 3000);
         }
     }
@@ -938,7 +1089,7 @@
         try {
             const projectEntries = await listProjectSpaceConversations(workspaceId);
             if (projectEntries.length === 0) {
-                alert('未找到项目空间对话。');
+                alert(t("未找到项目空间对话。"));
                 return;
             }
             await exportConversations({
@@ -950,7 +1101,7 @@
             });
         } catch (err) {
             console.error('导出项目空间失败:', err);
-            alert(`导出项目空间失败: ${err.message}`);
+            alert(t("导出项目空间失败: {error}", { error: err.message }));
         }
     }
 
@@ -983,8 +1134,8 @@
             return;
         }
 
-        const modeLabel = mode === 'team' ? '团队空间' : mode === 'project' ? '项目空间' : '个人空间';
-        if (confirm(`Chrome 扩展请求导出 ${modeLabel} 对话（来源: ${source}）。是否开始？`)) {
+        const modeLabel = mode === 'team' ? t("团队空间") : mode === 'project' ? t("项目空间") : t("个人空间");
+        if (confirm(t("Chrome 扩展请求导出 {workspace} 对话（来源: {source}）。是否开始？", { workspace: modeLabel, source }))) {
             proceed();
         }
     }
@@ -1014,7 +1165,7 @@
     async function getProjectSpaces(workspaceId, options = {}) {
         const deviceId = getOaiDeviceId();
         if (!deviceId) {
-            throw new Error('无法获取 oai-device-id，请确保已登录并刷新页面。');
+            throw new Error(t("无法获取 oai-device-id，请确保已登录并刷新页面。"));
         }
         const headers = {
             'Authorization': `Bearer ${accessToken}`,
@@ -1041,7 +1192,7 @@
 
             const r = await fetch(`/backend-api/gizmos/snorlax/sidebar?${query.toString()}`, { headers });
             if (!r.ok) {
-                throw new Error(`获取项目空间列表失败 (${r.status})`);
+                throw new Error(t("获取项目空间列表失败 ({status})", { status: r.status }));
             }
             const data = await r.json();
             data.items?.forEach(item => {
@@ -1074,7 +1225,7 @@
         const all = new Set();
         const deviceId = getOaiDeviceId();
         if (!deviceId) {
-            throw new Error('无法获取 oai-device-id，请确保已登录并刷新页面。');
+            throw new Error(t("无法获取 oai-device-id，请确保已登录并刷新页面。"));
         }
         const headers = {
             'Authorization': `Bearer ${accessToken}`,
@@ -1086,7 +1237,7 @@
             let cursor = '0';
             do {
                 const r = await fetch(`/backend-api/gizmos/${gizmoId}/conversations?cursor=${cursor}`, { headers });
-                if (!r.ok) throw new Error(`列举项目对话列表失败 (${r.status})`);
+                if (!r.ok) throw new Error(t("列举项目对话列表失败 ({status})", { status: r.status }));
                 const j = await r.json();
                 j.items?.forEach(it => all.add(it.id));
                 cursor = j.cursor;
@@ -1096,9 +1247,9 @@
             for (const is_archived of [false, true]) {
                 let offset = 0, has_more = true, page = 0;
                 do {
-                    btn.textContent = `📂 项目外对话 (${is_archived ? 'Archived' : 'Active'} p${++page})`;
+                    btn.textContent = t("📂 项目外对话 ({status} p{page})", { status: is_archived ? t('已归档') : t('未归档'), page: ++page });
                     const r = await fetch(`/backend-api/conversations?offset=${offset}&limit=${PAGE_LIMIT}&order=updated${is_archived ? '&is_archived=true' : ''}`, { headers });
-                    if (!r.ok) throw new Error(`列举项目外对话列表失败 (${r.status})`);
+                    if (!r.ok) throw new Error(t("列举项目外对话列表失败 ({status})", { status: r.status }));
                     const j = await r.json();
                     if (j.items && j.items.length > 0) {
                         j.items.forEach(it => all.add(it.id));
@@ -1150,12 +1301,12 @@
 
     async function listConversations(workspaceId) {
         if (!await ensureAccessToken()) {
-            throw new Error('无法获取 Access Token，请刷新页面或打开任意一个对话后再试。');
+            throw new Error(t("无法获取 Access Token，请刷新页面或打开任意一个对话后再试。"));
         }
 
         const deviceId = getOaiDeviceId();
         if (!deviceId) {
-            throw new Error('无法获取 oai-device-id，请确保已登录并刷新页面。');
+            throw new Error(t("无法获取 oai-device-id，请确保已登录并刷新页面。"));
         }
 
         const headers = {
@@ -1172,7 +1323,7 @@
             let has_more = true;
             do {
                 const r = await fetch(`/backend-api/conversations?offset=${offset}&limit=${PAGE_LIMIT}&order=updated${is_archived ? '&is_archived=true' : ''}`, { headers });
-                if (!r.ok) throw new Error(`列举对话列表失败 (${r.status})`);
+                if (!r.ok) throw new Error(t("列举对话列表失败 ({status})", { status: r.status }));
                 const j = await r.json();
                 if (j.items && j.items.length > 0) {
                     j.items.forEach(it => addEntry(it, { is_archived }));
@@ -1191,7 +1342,7 @@
                 let cursor = '0';
                 do {
                     const r = await fetch(`/backend-api/gizmos/${project.id}/conversations?cursor=${cursor}`, { headers });
-                    if (!r.ok) throw new Error(`列举项目对话列表失败 (${r.status})`);
+                    if (!r.ok) throw new Error(t("列举项目对话列表失败 ({status})", { status: r.status }));
                     const j = await r.json();
                     j.items?.forEach(it => addEntry(it, { projectId: project.id, projectTitle: project.title }));
                     cursor = j.cursor;
@@ -1206,12 +1357,12 @@
 
     async function listProjectSpaceConversations(workspaceId) {
         if (!await ensureAccessToken()) {
-            throw new Error('无法获取 Access Token，请刷新页面或打开任意一个对话后再试。');
+            throw new Error(t("无法获取 Access Token，请刷新页面或打开任意一个对话后再试。"));
         }
 
         const deviceId = getOaiDeviceId();
         if (!deviceId) {
-            throw new Error('无法获取 oai-device-id，请确保已登录并刷新页面。');
+            throw new Error(t("无法获取 oai-device-id，请确保已登录并刷新页面。"));
         }
 
         const headers = {
@@ -1239,7 +1390,7 @@
                         cursor = null;
                         break;
                     }
-                    throw new Error(`列举项目空间对话列表失败 (${r.status})`);
+                    throw new Error(t("列举项目空间对话列表失败 ({status})", { status: r.status }));
                 }
                 const j = await r.json();
                 j.items?.forEach(item => upsertConversationEntry(map, item, {
@@ -1259,7 +1410,7 @@
     async function getConversation(id, workspaceId) {
         const deviceId = getOaiDeviceId();
         if (!deviceId) {
-            throw new Error('无法获取 oai-device-id，请确保已登录并刷新页面。');
+            throw new Error(t("无法获取 oai-device-id，请确保已登录并刷新页面。"));
         }
         const headers = {
             'Authorization': `Bearer ${accessToken}`,
@@ -1268,7 +1419,7 @@
         const resolvedWorkspaceId = resolveWorkspaceId(workspaceId);
         if (resolvedWorkspaceId) { headers['ChatGPT-Account-Id'] = resolvedWorkspaceId; }
         const r = await fetch(`/backend-api/conversation/${id}`, { headers });
-        if (!r.ok) throw new Error(`获取对话详情失败 conv ${id} (${r.status})`);
+        if (!r.ok) throw new Error(t("获取对话详情失败 conv {id} ({status})", { id, status: r.status }));
         const j = await r.json();
         j.__fetched_at = new Date().toISOString();
         return j;
@@ -1334,11 +1485,14 @@
         dialog.id = 'export-dialog';
         Object.assign(dialog.style, {
             background: '#fff', padding: '24px', borderRadius: '12px',
-            boxShadow: '0 5px 15px rgba(0,0,0,.3)', width: '720px',
+            boxShadow: '0 5px 15px rgba(0,0,0,.3)', width: '800px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto',
             fontFamily: 'sans-serif', color: '#333', boxSizing: 'border-box'
         });
 
-        const closeDialog = () => document.body.removeChild(overlay);
+        const closeDialog = () => {
+            renderLocalizedDialog = null;
+            document.body.removeChild(overlay);
+        };
         const state = {
             list: [],
             filtered: [],
@@ -1357,52 +1511,53 @@
         };
 
         const renderBase = () => {
-            const modeLabel = mode === 'team' ? '团队空间' : mode === 'project' ? '项目空间' : '个人空间';
+            const modeLabel = mode === 'team' ? t("团队空间") : mode === 'project' ? t("项目空间") : t("个人空间");
             const workspaceLabel = workspaceId ? `（${workspaceId}）` : '';
+            dialog.lang = i18n.language;
             dialog.innerHTML = `
-                <h2 style="margin-top:0; margin-bottom: 12px; font-size: 18px;">选择要导出的对话</h2>
-                <div style="margin-bottom: 12px; color: #666; font-size: 12px;">空间：${modeLabel}${workspaceLabel}</div>
+                <h2 style="margin-top:0; margin-bottom: 12px; font-size: 18px;">${t("选择要导出的对话")}</h2>
+                <div style="margin-bottom: 12px; color: #666; font-size: 12px;">${t("空间：")}${modeLabel}${workspaceLabel}</div>
                 <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                    <input id="conv-search" type="text" placeholder="搜索标题/项目名/ID"
+                    <input id="conv-search" type="text" placeholder="${t("搜索标题/项目名/ID")}"
                         style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box;">
                     <select id="filter-scope" style="padding: 8px 28px 8px 8px; border-radius: 6px; border: 1px solid #ccc;">
-                        <option value="all">全部范围</option>
-                        <option value="project">仅项目</option>
-                        <option value="root">仅项目外</option>
+                        <option value="all">${t("全部范围")}</option>
+                        <option value="project">${t("仅项目")}</option>
+                        <option value="root">${t("仅项目外")}</option>
                     </select>
                     <select id="filter-archived" style="padding: 8px 28px 8px 8px; border-radius: 6px; border: 1px solid #ccc;">
-                        <option value="all">全部状态</option>
-                        <option value="active">仅未归档</option>
-                        <option value="archived">仅已归档</option>
+                        <option value="all">${t("全部状态")}</option>
+                        <option value="active">${t("仅未归档")}</option>
+                        <option value="archived">${t("仅已归档")}</option>
                     </select>
                 </div>
                 <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
                     <select id="filter-time-field" style="padding: 8px 28px 8px 8px; border-radius: 6px; border: 1px solid #ccc;">
-                        <option value="update">按更新时间</option>
-                        <option value="create">按创建时间</option>
+                        <option value="update">${t("按更新时间")}</option>
+                        <option value="create">${t("按创建时间")}</option>
                     </select>
                     <input id="filter-start-date" type="date" style="padding: 8px; border-radius: 6px; border: 1px solid #ccc;">
-                    <span style="color: #666; font-size: 12px;">至</span>
+                    <span style="color: #666; font-size: 12px;">${t("至")}</span>
                     <input id="filter-end-date" type="date" style="padding: 8px; border-radius: 6px; border: 1px solid #ccc;">
-                    <button id="clear-date-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">清空日期</button>
+                    <button id="clear-date-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("清空日期")}</button>
                 </div>
                 <label style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb; cursor: pointer;">
                     <input id="include-attachments-picker" type="checkbox" ${state.includeAttachments ? 'checked' : ''} style="margin-top: 2px;">
                     <span>
-                        <strong style="display: block; font-size: 13px;">同时下载上传和生成的附件</strong>
-                        <span style="display: block; margin-top: 2px; color: #666; font-size: 12px;">默认开启；附件较多时会增加导出时间和 ZIP 体积。</span>
+                        <strong style="display: block; font-size: 13px;">${t("同时下载上传和生成的附件")}</strong>
+                        <span style="display: block; margin-top: 2px; color: #666; font-size: 12px;">${t("默认开启；附件较多时会增加导出时间和 ZIP 体积。")}</span>
                     </span>
                 </label>
-                <div id="conv-status" style="margin-bottom: 8px; font-size: 12px; color: #666;">正在加载列表...</div>
+                <div id="conv-status" style="margin-bottom: 8px; font-size: 12px; color: #666;">${t("正在加载列表...")}</div>
                 <div id="conv-list" style="max-height: 360px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #fff;"></div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
                     <div style="display: flex; gap: 8px;">
-                        <button id="select-all-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">全选</button>
-                        <button id="clear-all-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">清空</button>
+                        <button id="select-all-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("全选")}</button>
+                        <button id="clear-all-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("清空")}</button>
                     </div>
                     <div style="display: flex; gap: 8px;">
-                        <button id="back-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">返回</button>
-                        <button id="export-selected-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;" disabled>导出选中 (0)</button>
+                        <button id="back-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("返回")}</button>
+                        <button id="export-selected-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;" disabled>${t("导出选中 (0)")}</button>
                     </div>
                 </div>
             `;
@@ -1425,9 +1580,15 @@
                 scopeSelect.disabled = true;
                 scopeSelect.style.opacity = '0.7';
                 scopeSelect.style.cursor = 'not-allowed';
-                scopeSelect.title = '项目空间仅包含项目对话';
+                scopeSelect.title = t("项目空间仅包含项目对话");
             }
 
+            searchInput.value = state.query;
+            scopeSelect.value = state.scope;
+            archivedSelect.value = state.archived;
+            timeFieldSelect.value = state.timeField;
+            startDateInput.value = state.startDate;
+            endDateInput.value = state.endDate;
             searchInput.oninput = (e) => {
                 state.query = e.target.value || '';
                 applyFilters();
@@ -1528,17 +1689,17 @@
 
             listEl.innerHTML = '';
             if (state.loading) {
-                statusEl.textContent = '正在加载列表...';
+                statusEl.textContent = t("正在加载列表...");
                 return;
             }
 
             const visibleCount = Math.min(state.visibleCount, state.filtered.length);
-            statusEl.textContent = `共 ${state.list.length} 条，当前筛选 ${state.filtered.length} 条，显示 ${visibleCount} 条，已选 ${state.selected.size} 条`;
-            exportBtn.textContent = `导出选中 (${state.selected.size})`;
+            statusEl.textContent = t("共 {total} 条，当前筛选 {filtered} 条，显示 {visible} 条，已选 {selected} 条", { total: state.list.length, filtered: state.filtered.length, visible: visibleCount, selected: state.selected.size });
+            exportBtn.textContent = t("导出选中 ({count})", { count: state.selected.size });
 
             if (state.filtered.length === 0) {
                 const empty = document.createElement('div');
-                empty.textContent = '没有匹配的对话。';
+                empty.textContent = t("没有匹配的对话。");
                 empty.style.color = '#999';
                 empty.style.padding = '8px 4px';
                 listEl.appendChild(empty);
@@ -1570,16 +1731,16 @@
                 content.style.flex = '1';
 
                 const title = document.createElement('div');
-                title.textContent = item.title || 'Untitled Conversation';
+                title.textContent = item.title || t('未命名对话');
                 title.style.fontWeight = 'bold';
                 title.style.fontSize = '14px';
 
                 const meta = document.createElement('div');
                 meta.style.fontSize = '12px';
                 meta.style.color = '#666';
-                const timeLabelPrefix = state.timeField === 'create' ? '创建' : '更新';
+                const timeLabelPrefix = state.timeField === 'create' ? t("创建") : t("更新");
                 const timeValue = state.timeField === 'create' ? item.create_time : item.update_time;
-                const timeLabel = formatTimestamp(timeValue) || '未知';
+                const timeLabel = formatTimestamp(timeValue) || t("未知");
                 meta.textContent = `${timeLabelPrefix}: ${timeLabel}`;
 
                 const tags = document.createElement('div');
@@ -1590,7 +1751,7 @@
 
                 if (item.projectTitle) {
                     const projectTag = document.createElement('span');
-                    projectTag.textContent = `项目: ${item.projectTitle}`;
+                    projectTag.textContent = t("项目: {title}", { title: item.projectTitle });
                     Object.assign(projectTag.style, {
                         background: '#eef2ff', color: '#4338ca',
                         padding: '2px 6px', borderRadius: '999px', fontSize: '11px'
@@ -1600,7 +1761,7 @@
 
                 if (item.is_archived) {
                     const archivedTag = document.createElement('span');
-                    archivedTag.textContent = '已归档';
+                    archivedTag.textContent = t("已归档");
                     Object.assign(archivedTag.style, {
                         background: '#fef3c7', color: '#92400e',
                         padding: '2px 6px', borderRadius: '999px', fontSize: '11px'
@@ -1619,7 +1780,7 @@
 
             if (state.filtered.length > state.visibleCount) {
                 const loadMore = document.createElement('button');
-                loadMore.textContent = `加载更多（剩余 ${state.filtered.length - state.visibleCount} 条）`;
+                loadMore.textContent = t("加载更多（剩余 {count} 条）", { count: state.filtered.length - state.visibleCount });
                 Object.assign(loadMore.style, {
                     width: '100%', padding: '8px 12px', border: '1px solid #ccc',
                     borderRadius: '6px', background: '#fff', cursor: 'pointer'
@@ -1632,6 +1793,7 @@
             }
         };
 
+        renderLocalizedDialog = () => { renderBase(); renderList(); };
         renderBase();
         overlay.appendChild(dialog);
         document.body.appendChild(overlay);
@@ -1652,7 +1814,7 @@
                 state.loading = false;
                 state.list = [];
                 state.filtered = [];
-                statusEl.textContent = `加载失败: ${err.message}`;
+                statusEl.textContent = t("加载失败: {error}", { error: err.message });
                 renderList();
             });
     }
@@ -1675,11 +1837,14 @@
         dialog.id = 'export-dialog';
         Object.assign(dialog.style, {
             background: '#fff', padding: '24px', borderRadius: '12px',
-            boxShadow: '0 5px 15px rgba(0,0,0,.3)', width: '450px',
+            boxShadow: '0 5px 15px rgba(0,0,0,.3)', width: '520px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto',
             fontFamily: 'sans-serif', color: '#333', boxSizing: 'border-box'
         });
 
-        const closeDialog = () => document.body.removeChild(overlay);
+        const closeDialog = () => {
+            renderLocalizedDialog = null;
+            document.body.removeChild(overlay);
+        };
 
         let pendingTeamAction = null;
         let includeAttachments = options.includeAttachments ?? DEFAULT_INCLUDE_ATTACHMENTS;
@@ -1689,11 +1854,11 @@
             switch (step) {
                 case 'team': {
                     const detectedIds = detectAllWorkspaceIds();
-                    html = `<h2 style="margin-top:0; margin-bottom: 20px; font-size: 18px;">导出团队空间</h2>`;
+                    html = `<h2 style="margin-top:0; margin-bottom: 20px; font-size: 18px;">${t("导出团队空间")}</h2>`;
 
                     if (detectedIds.length > 1) {
                         html += `<div style="background: #eef2ff; border: 1px solid #818cf8; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
-                                     <p style="margin: 0 0 12px 0; font-weight: bold; color: #4338ca;">🔎 检测到多个 Workspace，请选择一个:</p>
+                                     <p style="margin: 0 0 12px 0; font-weight: bold; color: #4338ca;">${t("🔎 检测到多个 Workspace，请选择一个:")}</p>
                                      <div id="workspace-id-list">`;
                         detectedIds.forEach((id, index) => {
                             html += `<label style="display: block; margin-bottom: 8px; padding: 8px; border-radius: 6px; cursor: pointer; border: 1px solid #ddd; background: #fff;">
@@ -1704,30 +1869,30 @@
                         html += `</div></div>`;
                     } else if (detectedIds.length === 1) {
                         html += `<div style="background: #f0fdf4; border: 1px solid #4ade80; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
-                                     <p style="margin: 0 0 8px 0; font-weight: bold; color: #166534;">✅ 已自动检测到 Workspace ID:</p>
+                                     <p style="margin: 0 0 8px 0; font-weight: bold; color: #166534;">${t("✅ 已自动检测到 Workspace ID:")}</p>
                                      <code id="workspace-id-code" style="background: #e0e7ff; padding: 4px 8px; border-radius: 4px; font-family: monospace; color: #4338ca; word-break: break-all;">${detectedIds[0]}</code>
                                    </div>`;
                     } else {
                         html += `<div style="background: #fffbeb; border: 1px solid #facc15; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
-                                     <p style="margin: 0; color: #92400e;">⚠️ 未能自动检测到 Workspace ID。</p>
-                                     <p style="margin: 8px 0 0 0; font-size: 12px; color: #92400e;">请尝试刷新页面或打开一个团队对话，或在下方手动输入。</p>
+                                     <p style="margin: 0; color: #92400e;">${t("⚠️ 未能自动检测到 Workspace ID。")}</p>
+                                     <p style="margin: 8px 0 0 0; font-size: 12px; color: #92400e;">${t("请尝试刷新页面或打开一个团队对话，或在下方手动输入。")}</p>
                                    </div>
-                                   <label for="team-id-input" style="display: block; margin-bottom: 8px; font-weight: bold;">手动输入 Team Workspace ID:</label>
-                                   <input type="text" id="team-id-input" placeholder="粘贴您的 Workspace ID (ws-...)" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box;">`;
+                                   <label for="team-id-input" style="display: block; margin-bottom: 8px; font-weight: bold;">${t("手动输入 Team Workspace ID:")}</label>
+                                   <input type="text" id="team-id-input" placeholder="${t("粘贴您的 Workspace ID (ws-...)")}" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box;">`;
                     }
 
                     let actionButtons = '';
                     if (pendingTeamAction === 'all') {
-                        actionButtons = `<button id="start-team-export-btn" style="padding: 10px 16px; border: none; border-radius: 8px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">导出全部 (ZIP)</button>`;
+                        actionButtons = `<button id="start-team-export-btn" style="padding: 10px 16px; border: none; border-radius: 8px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">${t("导出全部 (ZIP)")}</button>`;
                     } else if (pendingTeamAction === 'select') {
-                        actionButtons = `<button id="start-team-picker-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">选择对话导出</button>`;
+                        actionButtons = `<button id="start-team-picker-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">${t("选择对话导出")}</button>`;
                     } else {
-                        actionButtons = `<button id="start-team-export-btn" style="padding: 10px 16px; border: none; border-radius: 8px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">导出全部 (ZIP)</button>
-                                     <button id="start-team-picker-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">选择对话导出</button>`;
+                        actionButtons = `<button id="start-team-export-btn" style="padding: 10px 16px; border: none; border-radius: 8px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">${t("导出全部 (ZIP)")}</button>
+                                     <button id="start-team-picker-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">${t("选择对话导出")}</button>`;
                     }
 
                     html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px;">
-                                 <button id="back-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">返回</button>
+                                 <button id="back-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">${t("返回")}</button>
                                  <div style="display: flex; gap: 8px;">
                                      ${actionButtons}
                                  </div>
@@ -1740,54 +1905,72 @@
                     const currentConvId = getCurrentConversationId();
                     const currentCard = currentConvId ? `
                                     <div style="padding: 16px; border: 1px solid #10a37f; border-radius: 8px; background: #f0fdf4;">
-                                        <strong style="font-size: 16px;">当前对话</strong>
-                                        <p style="margin: 4px 0 12px 0; color: #666;">仅导出当前正在查看的这一条对话（打包为 ZIP，含 JSON + Markdown）。</p>
+                                        <strong style="font-size: 16px;">${t("当前对话")}</strong>
+                                        <p style="margin: 4px 0 12px 0; color: #666;">${t("仅导出当前正在查看的这一条对话（打包为 ZIP，含 JSON + Markdown）。")}</p>
                                         <div style="display: flex; gap: 8px;">
-                                            <button id="select-current-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">导出当前对话</button>
+                                            <button id="select-current-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">${t("导出当前对话")}</button>
                                         </div>
                                     </div>` : '';
-                    html = `<h2 style="margin-top:0; margin-bottom: 20px; font-size: 18px;">选择要导出的空间</h2>
+                    html = `<h2 style="margin-top:0; margin-bottom: 20px; font-size: 18px;">${t("选择要导出的空间")}</h2>
                                 <div style="display: flex; flex-direction: column; gap: 16px;">
                                     ${currentCard}
                                     <div style="padding: 16px; border: 1px solid #ccc; border-radius: 8px; background: #f9fafb;">
-                                        <strong style="font-size: 16px;">个人空间</strong>
-                                        <p style="margin: 4px 0 12px 0; color: #666;">导出您个人账户下的对话。</p>
+                                        <strong style="font-size: 16px;">${t("个人空间")}</strong>
+                                        <p style="margin: 4px 0 12px 0; color: #666;">${t("导出您个人账户下的对话。")}</p>
                                         <div style="display: flex; gap: 8px;">
-                                            <button id="select-personal-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">导出全部</button>
-                                            <button id="select-personal-picker-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">选择对话导出</button>
+                                            <button id="select-personal-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">${t("导出全部")}</button>
+                                            <button id="select-personal-picker-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("选择对话导出")}</button>
                                         </div>
                                     </div>
                                     <div style="padding: 16px; border: 1px solid #ccc; border-radius: 8px; background: #f9fafb;">
-                                        <strong style="font-size: 16px;">项目空间</strong>
-                                        <p style="margin: 4px 0 12px 0; color: #666;">导出项目空间下的对话，将按项目自动分组。</p>
+                                        <strong style="font-size: 16px;">${t("项目空间")}</strong>
+                                        <p style="margin: 4px 0 12px 0; color: #666;">${t("导出项目空间下的对话，将按项目自动分组。")}</p>
                                         <div style="display: flex; gap: 8px;">
-                                            <button id="select-project-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">导出全部</button>
-                                            <button id="select-project-picker-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">选择对话导出</button>
+                                            <button id="select-project-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">${t("导出全部")}</button>
+                                            <button id="select-project-picker-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("选择对话导出")}</button>
                                         </div>
                                     </div>
                                     <div style="padding: 16px; border: 1px solid #ccc; border-radius: 8px; background: #f9fafb;">
-                                        <strong style="font-size: 16px;">团队空间</strong>
-                                        <p style="margin: 4px 0 12px 0; color: #666;">导出团队空间下的对话，将自动检测ID。</p>
+                                        <strong style="font-size: 16px;">${t("团队空间")}</strong>
+                                        <p style="margin: 4px 0 12px 0; color: #666;">${t("导出团队空间下的对话，将自动检测ID。")}</p>
                                         <div style="display: flex; gap: 8px;">
-                                            <button id="select-team-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">导出全部</button>
-                                            <button id="select-team-picker-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">选择对话导出</button>
+                                            <button id="select-team-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">${t("导出全部")}</button>
+                                            <button id="select-team-picker-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("选择对话导出")}</button>
                                         </div>
                                     </div>
                                 </div>
                                 <label style="display: flex; align-items: flex-start; gap: 8px; margin-top: 16px; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb; cursor: pointer;">
                                     <input id="include-attachments" type="checkbox" ${includeAttachments ? 'checked' : ''} style="margin-top: 2px;">
                                     <span>
-                                        <strong style="display: block; font-size: 13px;">同时下载上传和生成的附件</strong>
-                                        <span style="display: block; margin-top: 2px; color: #666; font-size: 12px;">默认开启；附件较多时会增加导出时间和 ZIP 体积。</span>
+                                        <strong style="display: block; font-size: 13px;">${t("同时下载上传和生成的附件")}</strong>
+                                        <span style="display: block; margin-top: 2px; color: #666; font-size: 12px;">${t("默认开启；附件较多时会增加导出时间和 ZIP 体积。")}</span>
                                     </span>
                                 </label>
                                 <div style="display: flex; justify-content: flex-end; margin-top: 24px;">
-                                    <button id="cancel-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">取消</button>
+                                    <button id="cancel-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">${t("取消")}</button>
                                 </div>`;
                     break;
                 }
             }
-            dialog.innerHTML = html;
+            const teamInput = dialog.querySelector('#team-id-input')?.value;
+            const teamChoice = dialog.querySelector('input[name="workspace_id"]:checked')?.value;
+            dialog.lang = i18n.language;
+            dialog.innerHTML = `<label style="display:flex; align-items:center; gap:8px; margin-bottom:16px; font-size:13px;">
+                ${t('语言')}
+                <select id="export-language" style="padding:6px; border:1px solid #ccc; border-radius:6px;">
+                    <option value="auto">${t('跟随浏览器')}</option>
+                    <option value="zh-CN">简体中文</option>
+                    <option value="en">English</option>
+                </select>
+            </label>` + html;
+            const languageSelect = dialog.querySelector('#export-language');
+            languageSelect.value = i18n.preference;
+            languageSelect.onchange = () => setLanguage(languageSelect.value, true);
+            if (teamInput !== undefined && dialog.querySelector('#team-id-input')) {
+                dialog.querySelector('#team-id-input').value = teamInput;
+            }
+            if (teamChoice) dialog.querySelectorAll('input[name="workspace_id"]').forEach(input => { input.checked = input.value === teamChoice; });
+            renderLocalizedDialog = () => renderStep(step, action);
             attachListeners(step);
         };
 
@@ -1852,7 +2035,7 @@
                     }
 
                     if (!workspaceId) {
-                        alert('请选择或输入一个有效的 Team Workspace ID！');
+                        alert(t("请选择或输入一个有效的 Team Workspace ID！"));
                         return;
                     }
                     return workspaceId;
@@ -1887,6 +2070,7 @@
     }
     Object.assign(window.ChatGPTExporter, {
         version: ATTACHMENT_EXPORT_VERSION,
+        setLanguage,
         showDialog: showExportDialog,
         exportCurrent: exportCurrentConversation,
         startManualExport: (mode = 'personal', workspaceId = null, includeAttachments = DEFAULT_INCLUDE_ATTACHMENTS) => {
@@ -1903,7 +2087,7 @@
     const runtimeButton = document.getElementById('gpt-rescue-btn');
     if (runtimeButton) {
         runtimeButton.onclick = showExportDialog;
-        if (!runtimeButton.disabled) runtimeButton.textContent = EXPORT_BUTTON_LABEL;
+        if (!runtimeButton.disabled) runtimeButton.textContent = exportButtonLabel();
         runtimeButton.dataset.exporterVersion = ATTACHMENT_EXPORT_VERSION;
         runtimeButton.title = `ChatGPT Exporter v${ATTACHMENT_EXPORT_VERSION}`;
     }
@@ -1922,6 +2106,9 @@
             switch (data.action) {
                 case 'START_SCHEDULED_EXPORT':
                     api.startScheduledExport(data.payload || {});
+                    break;
+                case 'SET_LANGUAGE':
+                    api.setLanguage(data.payload?.language);
                     break;
                 case 'OPEN_DIALOG':
                     api.showDialog();

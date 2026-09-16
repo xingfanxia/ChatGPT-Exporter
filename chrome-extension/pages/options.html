@@ -2,40 +2,49 @@
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
-    <title>ChatGPT Exporter 设置</title>
+    <title data-i18n="ChatGPT Exporter 设置">ChatGPT Exporter 设置</title>
     <link rel="stylesheet" href="../styles/options.css">
 </head>
 <body>
     <main>
-        <h1>导出与提醒设置</h1>
+        <h1 data-i18n="导出与提醒设置">导出与提醒设置</h1>
         <form id="settings-form">
             <section>
-                <label for="frequency">提醒频率</label>
+                <label for="language" data-i18n="界面语言">界面语言</label>
+                <select id="language" name="language">
+                    <option value="auto" data-i18n="自动（跟随浏览器）">自动（跟随浏览器）</option>
+                    <option value="zh-CN">简体中文</option>
+                    <option value="en">English</option>
+                </select>
+            </section>
+            <section>
+                <label for="frequency" data-i18n="提醒频率">提醒频率</label>
                 <select id="frequency" name="frequency">
-                    <option value="off">关闭</option>
-                    <option value="daily">每天</option>
-                    <option value="weekly">每周</option>
+                    <option value="off" data-i18n="关闭">关闭</option>
+                    <option value="daily" data-i18n="每天">每天</option>
+                    <option value="weekly" data-i18n="每周">每周</option>
                 </select>
             </section>
             <section id="time-section">
-                <label for="timeOfDay">提醒时间</label>
+                <label for="timeOfDay" data-i18n="提醒时间">提醒时间</label>
                 <input type="time" id="timeOfDay" name="timeOfDay" value="09:00">
             </section>
             <section id="weekday-section">
-                <label for="weekday">提醒日（周模式）</label>
+                <label for="weekday" data-i18n="提醒日（周模式）">提醒日（周模式）</label>
                 <select id="weekday" name="weekday">
-                    <option value="1">周一</option>
-                    <option value="2">周二</option>
-                    <option value="3">周三</option>
-                    <option value="4">周四</option>
-                    <option value="5">周五</option>
-                    <option value="6">周六</option>
-                    <option value="0">周日</option>
+                    <option value="1" data-i18n="周一">周一</option>
+                    <option value="2" data-i18n="周二">周二</option>
+                    <option value="3" data-i18n="周三">周三</option>
+                    <option value="4" data-i18n="周四">周四</option>
+                    <option value="5" data-i18n="周五">周五</option>
+                    <option value="6" data-i18n="周六">周六</option>
+                    <option value="0" data-i18n="周日">周日</option>
                 </select>
             </section>
+            <p id="schedule-preview" role="status"></p>
             <div class="form-actions">
-                <button type="submit">保存设置</button>
-                <button type="button" id="reset-btn" class="ghost">恢复默认</button>
+                <button type="submit" data-i18n="保存设置">保存设置</button>
+                <button type="button" id="reset-btn" class="ghost" data-i18n="恢复默认">恢复默认</button>
             </div>
             <p id="save-state" role="status"></p>
         </form>
