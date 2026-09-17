@@ -1517,9 +1517,10 @@
         const dialog = document.createElement('div');
         dialog.id = 'export-dialog';
         Object.assign(dialog.style, {
-            background: '#fff', padding: '24px', borderRadius: '12px',
-            boxShadow: '0 5px 15px rgba(0,0,0,.3)', width: '800px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto',
-            fontFamily: 'sans-serif', color: '#333', boxSizing: 'border-box'
+            background: '#fff', padding: '0', borderRadius: '12px',
+            boxShadow: '0 5px 15px rgba(0,0,0,.3)', width: '800px', maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100dvh - 32px)',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            fontFamily: 'sans-serif', fontSize: '14px', lineHeight: '1.45', color: '#333', boxSizing: 'border-box'
         });
 
         const closeDialog = () => {
@@ -1548,11 +1549,12 @@
             const workspaceLabel = workspaceId ? `（${workspaceId}）` : '';
             dialog.lang = i18n.language;
             dialog.innerHTML = `
+                <div id="export-dialog-content" style="min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:24px;">
                 <h2 style="margin-top:0; margin-bottom: 12px; font-size: 18px;">${t("选择要导出的对话")}</h2>
                 <div style="margin-bottom: 12px; color: #666; font-size: 12px;">${t("空间：")}${modeLabel}${workspaceLabel}</div>
-                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
                     <input id="conv-search" type="text" placeholder="${t("搜索标题/项目名/ID")}"
-                        style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box;">
+                        style="flex: 1; min-width: 120px; padding: 8px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box;">
                     <select id="filter-scope" style="padding: 8px 28px 8px 8px; border-radius: 6px; border: 1px solid #ccc;">
                         <option value="all">${t("全部范围")}</option>
                         <option value="project">${t("仅项目")}</option>
@@ -1564,7 +1566,7 @@
                         <option value="archived">${t("仅已归档")}</option>
                     </select>
                 </div>
-                <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; align-items: center;">
                     <select id="filter-time-field" style="padding: 8px 28px 8px 8px; border-radius: 6px; border: 1px solid #ccc;">
                         <option value="update">${t("按更新时间")}</option>
                         <option value="create">${t("按创建时间")}</option>
@@ -1583,7 +1585,8 @@
                 </label>
                 <div id="conv-status" style="margin-bottom: 8px; font-size: 12px; color: #666;">${t("正在加载列表...")}</div>
                 <div id="conv-list" style="max-height: 360px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #fff;"></div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+                </div>
+                <div id="export-dialog-footer" style="display:flex; flex-shrink:0; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center; padding:16px 24px; border-top:1px solid #e5e7eb; background:#fff;">
                     <div style="display: flex; gap: 8px;">
                         <button id="select-all-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("全选")}</button>
                         <button id="clear-all-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("清空")}</button>
@@ -1869,9 +1872,10 @@
         const dialog = document.createElement('div');
         dialog.id = 'export-dialog';
         Object.assign(dialog.style, {
-            background: '#fff', padding: '24px', borderRadius: '12px',
-            boxShadow: '0 5px 15px rgba(0,0,0,.3)', width: '520px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto',
-            fontFamily: 'sans-serif', color: '#333', boxSizing: 'border-box'
+            background: '#fff', padding: '0', borderRadius: '12px',
+            boxShadow: '0 5px 15px rgba(0,0,0,.3)', width: '520px', maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100dvh - 32px)',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            fontFamily: 'sans-serif', fontSize: '14px', lineHeight: '1.45', color: '#333', boxSizing: 'border-box'
         });
 
         const closeDialog = () => {
@@ -1884,6 +1888,7 @@
         const renderStep = (step, action = null) => {
             pendingTeamAction = action;
             let html = '';
+            let footerHtml = '';
             switch (step) {
                 case 'team': {
                     const detectedIds = detectAllWorkspaceIds();
@@ -1924,7 +1929,7 @@
                                      <button id="start-team-picker-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">${t("选择对话导出")}</button>`;
                     }
 
-                    html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px;">
+                    footerHtml = `<div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center;">
                                  <button id="back-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">${t("返回")}</button>
                                  <div style="display: flex; gap: 8px;">
                                      ${actionButtons}
@@ -1978,8 +1983,8 @@
                                         <strong style="display: block; font-size: 13px;">${t("同时下载上传和生成的附件")}</strong>
                                         <span style="display: block; margin-top: 2px; color: #666; font-size: 12px;">${t("默认开启；附件较多时会增加导出时间和 ZIP 体积。")}</span>
                                     </span>
-                                </label>
-                                <div style="display: flex; justify-content: flex-end; margin-top: 24px;">
+                                </label>`;
+                    footerHtml = `<div style="display: flex; justify-content: flex-end;">
                                     <button id="cancel-btn" style="padding: 10px 16px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer;">${t("取消")}</button>
                                 </div>`;
                     break;
@@ -1988,14 +1993,16 @@
             const teamInput = dialog.querySelector('#team-id-input')?.value;
             const teamChoice = dialog.querySelector('input[name="workspace_id"]:checked')?.value;
             dialog.lang = i18n.language;
-            dialog.innerHTML = `<label style="display:flex; align-items:center; gap:8px; margin-bottom:16px; font-size:13px;">
+            dialog.innerHTML = `<label id="export-dialog-header" style="display:flex; flex-shrink:0; align-items:center; gap:8px; padding:20px 24px 16px; margin:0; font-size:13px;">
                 ${t('语言')}
                 <select id="export-language" style="padding:6px; border:1px solid #ccc; border-radius:6px;">
                     <option value="auto">${t('跟随浏览器')}</option>
                     <option value="zh-CN">简体中文</option>
                     <option value="en">English</option>
                 </select>
-            </label>` + html;
+            </label>
+            <div id="export-dialog-content" style="min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:0 24px 16px;">${html}</div>
+            <div id="export-dialog-footer" style="flex-shrink:0; padding:16px 24px; border-top:1px solid #e5e7eb; background:#fff;">${footerHtml}</div>`;
             const languageSelect = dialog.querySelector('#export-language');
             languageSelect.value = i18n.preference;
             languageSelect.onchange = () => setLanguage(languageSelect.value, true);
