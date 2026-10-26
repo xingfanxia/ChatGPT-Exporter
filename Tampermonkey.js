@@ -343,6 +343,7 @@
 
     const ATTACHMENT_EXPORT_VERSION = '1.7.1';
     const DEFAULT_INCLUDE_ATTACHMENTS = true;
+    const ATTACHMENT_CONCURRENCY = 4;
     const exportButtonLabel = () => `${t('导出对话')} v${ATTACHMENT_EXPORT_VERSION}`;
     const MIME_EXTENSIONS = {
         'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp',
@@ -602,12 +603,32 @@
         const usedNames = new Set();
         const folderName = generateUniqueFilename(convData).replace(/\.json$/i, '') + '_files';
 
+        // 并发下载（429/5xx 由 fetchAttachmentResponse 退避重试），下载完再按原顺序写入 ZIP，文件名去重结果与逐个下载时一致。
+        const results = new Array(references.length);
+        let nextIndex = 0;
+        let finished = 0;
+        const worker = async () => {
+            while (nextIndex < references.length) {
+                const index = nextIndex++;
+                const reference = references[index];
+                try {
+                    results[index] = {
+                        downloaded: IS_CLAUDE
+                            ? await fetchClaudeAttachment(reference)
+                            : await fetchAttachmentBinary(reference, convData, workspaceId, projectId)
+                    };
+                } catch (error) {
+                    results[index] = { error };
+                }
+                finished++;
+                setExportStatus(t("📎 下载附件 {current}/{total}：{name}", { current: finished, total: references.length, name: reference.name || '' }));
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(ATTACHMENT_CONCURRENCY, references.length) }, worker));
+
         for (const [index, reference] of references.entries()) {
-            setExportStatus(t("📎 下载附件 {current}/{total}：{name}", { current: index + 1, total: references.length, name: reference.name || '' }));
-            try {
-                const downloaded = IS_CLAUDE
-                    ? await fetchClaudeAttachment(reference)
-                    : await fetchAttachmentBinary(reference, convData, workspaceId, projectId);
+            const { downloaded, error } = results[index];
+            if (downloaded) {
                 const filename = uniqueAttachmentName(downloaded.filename, usedNames);
                 target.folder(folderName).file(filename, downloaded.data);
                 const relativePath = encodeRelativePath(`${folderName}/${filename}`);
@@ -624,7 +645,7 @@
                 if (reference.kind === 'sandbox') {
                     sandboxPaths.set(`${reference.messageId}|${reference.sandboxPath}`, relativePath);
                 }
-            } catch (error) {
+            } else {
                 failures.push({
                     kind: reference.kind,
                     file_id: reference.fileId || null,
@@ -634,7 +655,6 @@
                     error: error?.message || String(error)
                 });
             }
-            await sleep(150);
         }
         return { detected: references.length, files, failures, sandboxPaths };
     }

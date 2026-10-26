@@ -363,6 +363,60 @@ for (const scriptPath of SCRIPT_PATHS) {
         assert.equal(Array.from(entries.keys()).some(name => name.endsWith('.md')), true);
         assert.match(Array.from(entries.entries()).find(([name]) => name.endsWith('.md'))[1], /Keep this message\./);
     });
+
+    test(`${scriptPath}: downloads attachments in parallel and keeps their order`, async () => {
+        const runtime = loadExporter(scriptPath);
+        let inFlight = 0;
+        let maxInFlight = 0;
+        const fetchMock = async (url) => {
+            inFlight++;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            const id = Number(String(url).match(/file_n(\d)/)[1]);
+            // 编号越大完成越早，确认 ZIP 内顺序与重名编号不依赖完成顺序。
+            for (let i = 0; i < 10 - id; i++) await Promise.resolve();
+            inFlight--;
+            return new Response(`bytes-${id}`, {
+                headers: { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="same.pdf"' }
+            });
+        };
+        runtime.context.fetch = fetchMock;
+        runtime.window.fetch = fetchMock;
+
+        const entries = new Map();
+        const target = {
+            file(name, value) { entries.set(name, value); return this; },
+            folder(name) {
+                return { file(filename, value) { entries.set(`${name}/${filename}`, value); return this; } };
+            }
+        };
+        const ids = [1, 2, 3, 4, 5, 6].map(n => `file_n${n}`);
+        const conversation = {
+            conversation_id: 'conv-parallel',
+            title: 'Parallel',
+            mapping: {
+                root: {
+                    message: {
+                        id: 'msg-root',
+                        author: { role: 'user' },
+                        metadata: { attachments: ids.map(id => ({ id, name: 'same.pdf' })) },
+                        content: { content_type: 'text', parts: ['Six files.'] }
+                    },
+                    children: []
+                }
+            }
+        };
+        const report = runtime.hook.createAttachmentReport();
+
+        await runtime.hook.addConversationToZip(target, conversation, null, report);
+
+        assert.equal(maxInFlight, 4);
+        assert.equal(report.downloaded, 6);
+        const saved = Array.from(entries.entries()).filter(([name]) => name.includes('_files/'));
+        assert.deepEqual(saved.map(([name]) => name.split('/').pop()),
+            ['same.pdf', 'same_2.pdf', 'same_3.pdf', 'same_4.pdf', 'same_5.pdf', 'same_6.pdf']);
+        assert.deepEqual(saved.map(([, data]) => new TextDecoder().decode(data)),
+            ['bytes-1', 'bytes-2', 'bytes-3', 'bytes-4', 'bytes-5', 'bytes-6']);
+    });
 }
 
 const CLAUDE_SITE = {
