@@ -38,7 +38,7 @@ test('Chinese and English translations preserve the same interpolation fields', 
 });
 
 test('extension language bridge syncs live preferences and accepts only language values', async () => {
-    const attributes = new Map([['data-chatgpt-exporter-version', '1.6.0']]);
+    const attributes = new Map([['data-chatgpt-exporter-version', '1.7.1']]);
     const messages = [];
     const writes = [];
     let storageListener;

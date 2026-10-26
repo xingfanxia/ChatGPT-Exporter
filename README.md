@@ -1,10 +1,11 @@
 # ChatGPT Exporter
 
-一个用于批量导出 ChatGPT 对话记录的工具，支持个人空间、团队空间与项目空间的对话导出，可导出为 JSON 或 Markdown 格式。
+一个用于批量导出 ChatGPT 与 Claude（claude.ai）对话记录的工具。ChatGPT 支持个人空间、团队空间与项目空间；Claude 支持当前组织下的全部对话。可导出为 JSON 或 Markdown 格式。
 
 ## 功能特性
 
 - 📦 批量导出所有对话记录
+- 🤖 同时支持 claude.ai：导出当前对话、全部对话或勾选的对话（见下方“Claude 支持”）
 - 🎯 一键导出当前对话（仅导出正在查看的这一条，打包为 ZIP，含 JSON、Markdown 与附件）
 - ✅ 支持选择特定对话导出（搜索/筛选/勾选）
 - 🏢 支持个人空间和团队空间（Team Workspace）
@@ -90,6 +91,20 @@ Chrome 扩展提供更完整的功能，包括定时自动提醒、弹窗界面�
 
 **相关文件：**
 - `Tampermonkey.js` - 完整的用户脚本
+
+## Claude 支持
+
+在 `https://claude.ai` 上，同一个扩展 / 用户脚本会自动切换到 Claude 模式，入口与 ChatGPT 相同：对话页（`.../chat/<uuid>`）右下角的“⬇ 导出此对话”悬浮按钮、扩展弹窗，以及导出对话框里的“当前对话 / 全部对话（导出全部、选择对话导出）”。
+
+- **范围**：当前登录组织（`lastActiveOrg` Cookie）下的全部对话；属于项目的对话在 ZIP 中按项目名分目录。要导出另一个组织，先在 Claude 里切换过去。
+- **JSON**：`/api/organizations/{org}/chat_conversations/{id}?tree=True&rendering_mode=messages&render_all_tools=true` 的完整返回，包含所有分支、thinking 与工具调用。
+- **Markdown**：只输出页面上当前显示的这条分支（沿 `current_leaf_message_uuid` 回溯）；跳过 thinking 与工具结果；artifact 折叠成最终内容，在最后一次编辑的位置以内联代码块输出。
+- **附件**（勾选“同时下载上传和生成的附件”时）：
+  - 上传的图片 / 文档来自消息的 `files`。图片接口只提供预览图，不是原图。
+  - 粘贴内容与文本类上传来自消息的 `attachments`，接口只保留提取后的文本，按文本文件保存。
+  - 开启了代码执行 / 文件创建的对话带有沙盒（`/api/organizations/{org}/conversations/{id}/wiggle/list-files`）：`/mnt/user-data/outputs/` 下的生成文件会一并下载，`/mnt/user-data/uploads/` 下有同名原件时优先用原件。
+  - 没有可下载地址的文件（如音频）会记入 `attachment-export-report.json` 的失败项。
+- 鉴权只使用页面已有的会话 Cookie，所有请求都发往 claude.ai 同源接口；这些是 Claude 网页端的内部接口，官方改版后可能需要跟进。
 
 ## 核心功能说明
 

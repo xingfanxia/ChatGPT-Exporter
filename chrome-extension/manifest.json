@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Universal Exporter",
-  "description": "Export ChatGPT conversations, uploads, and generated files as JSON+Markdown ZIP backups with scheduled reminders.",
-  "version": "1.6.0",
+  "description": "Export ChatGPT and Claude conversations, uploads, and generated files as JSON+Markdown ZIP backups with scheduled reminders.",
+  "version": "1.7.1",
   "permissions": [
     "storage",
     "alarms",
@@ -12,7 +12,8 @@
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
-    "https://chat.openai.com/*"
+    "https://chat.openai.com/*",
+    "https://claude.ai/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -35,7 +36,8 @@
         "https://chatgpt.com/*",
         "https://*.chatgpt.com/*",
         "https://chat.openai.com/*",
-        "https://*.openai.com/*"
+        "https://*.openai.com/*",
+        "https://claude.ai/*"
       ],
       "js": [
         "content/inject-exporter.js",
@@ -54,7 +56,8 @@
         "https://chatgpt.com/*",
         "https://*.chatgpt.com/*",
         "https://chat.openai.com/*",
-        "https://*.openai.com/*"
+        "https://*.openai.com/*",
+        "https://claude.ai/*"
       ]
     }
   ]

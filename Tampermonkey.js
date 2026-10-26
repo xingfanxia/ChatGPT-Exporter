@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         ChatGPT Universal Exporter (Markdown Support)
-// @version      1.6.0
-// @description  Export ChatGPT conversations with visible uploads and generated files as JSON+Markdown ZIP backups.
+// @version      1.7.1
+// @description  Export ChatGPT and Claude conversations with visible uploads and generated files as JSON+Markdown ZIP backups.
 // @author       huhu
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
+// @match        https://claude.ai/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
 // @grant        none
 // @license      MIT
@@ -16,6 +17,16 @@
 // ==/UserScript==
 
 /* ============================================================
+    v1.7.1 变更 (导出进度提示)
+    ------------------------------------------------------------
+    • 导出期间在页面右下角显示带转圈动画的进度提示（当前步骤 / 附件下载进度）
+
+    v1.7.0 变更 (支持 Claude)
+    ------------------------------------------------------------
+    • 新增 claude.ai 支持：导出当前对话 / 全部对话 / 选择对话导出
+    • Markdown 按页面当前分支输出，artifact 以最终内容内联为代码块
+    • 附件：上传文件、粘贴文本以及代码执行沙盒中的生成文件
+
     v1.5.0 变更 (附件与生成文件导出)
     ------------------------------------------------------------
     • 将用户上传附件、可见图片和 ChatGPT 生成文件一并打包
@@ -75,6 +86,11 @@
         "跟随浏览器": "Follow browser",
         "无法获取 Access Token。请刷新页面或打开任意一个对话后再试。": "Unable to obtain an access token. Refresh the page or open a conversation and try again.",
         "未检测到当前对话。请先打开一个具体的对话页面（地址形如 https://chatgpt.com/c/...）后再试。": "No current conversation found. Open a conversation (https://chatgpt.com/c/...) and try again.",
+        "未检测到当前对话。请先打开一个具体的对话页面（地址形如 https://claude.ai/chat/...）后再试。": "No current conversation found. Open a conversation (https://claude.ai/chat/...) and try again.",
+        "无法获取 Claude 组织 ID，请确保已登录并刷新页面。": "Unable to determine the Claude organization. Make sure you are signed in and refresh the page.",
+        "全部对话": "All conversations",
+        "导出当前 Claude 组织下的全部对话，项目内的对话按项目分组。": "Export every conversation in the current Claude organization, with project conversations grouped by project.",
+        "📎 下载附件 {current}/{total}：{name}": "📎 Downloading attachment {current}/{total}: {name}",
         "📥 导出当前对话…": "📥 Exporting current conversation…",
         "✅ 完成": "✅ Done",
         "⚠️ 出错": "⚠️ Error",
@@ -198,11 +214,14 @@
     const PAGE_LIMIT = 100;
     const PROJECT_SIDEBAR_PREVIEW = 5;
     const PROJECT_SIDEBAR_LIMIT = 50;
+    const IS_CLAUDE = /(^|\.)claude\.ai$/i.test(location.hostname || '');
+    const EXPORT_FILE_PREFIX = IS_CLAUDE ? 'claude' : 'chatgpt';
     let accessToken = null;
     let capturedWorkspaceIds = new Set(); // 使用Set存储网络拦截到的ID，确保唯一性
 
     // --- 核心：网络拦截与信息捕获 ---
     (function interceptNetwork() {
+        if (IS_CLAUDE) return; // Claude 走会话 Cookie 鉴权，无需捕获 Token / Workspace ID
         const rawFetch = window.fetch;
         window.fetch = async function (resource, options) {
             tryCaptureToken(options?.headers);
@@ -247,6 +266,7 @@
     }
 
     async function ensureAccessToken() {
+        if (IS_CLAUDE) return true;
         if (accessToken) return accessToken;
         try {
             const session = await (await fetch('/api/auth/session?unstable_client=true')).json();
@@ -305,9 +325,9 @@
     }
 
     function generateUniqueFilename(convData) {
-        const convId = convData.conversation_id || '';
+        const convId = convData.conversation_id || convData.uuid || '';
         const shortId = convId.includes('-') ? convId.split('-').pop() : (convId || Date.now().toString(36));
-        let baseName = convData.title;
+        let baseName = convData.title ?? convData.name;
         if (!baseName || baseName.trim().toLowerCase() === 'new chat') {
             baseName = 'Untitled Conversation';
         }
@@ -321,7 +341,7 @@
             : `${jsonName}.md`;
     }
 
-    const ATTACHMENT_EXPORT_VERSION = '1.6.0';
+    const ATTACHMENT_EXPORT_VERSION = '1.7.1';
     const DEFAULT_INCLUDE_ATTACHMENTS = true;
     const exportButtonLabel = () => `${t('导出对话')} v${ATTACHMENT_EXPORT_VERSION}`;
     const MIME_EXTENSIONS = {
@@ -575,16 +595,19 @@
     }
 
     async function appendAttachmentsToZip(target, convData, workspaceId, projectId = null) {
-        const references = collectVisibleAttachments(convData);
+        const references = IS_CLAUDE ? await collectClaudeAttachments(convData) : collectVisibleAttachments(convData);
         const failures = [];
         const files = [];
         const sandboxPaths = new Map();
         const usedNames = new Set();
         const folderName = generateUniqueFilename(convData).replace(/\.json$/i, '') + '_files';
 
-        for (const reference of references) {
+        for (const [index, reference] of references.entries()) {
+            setExportStatus(t("📎 下载附件 {current}/{total}：{name}", { current: index + 1, total: references.length, name: reference.name || '' }));
             try {
-                const downloaded = await fetchAttachmentBinary(reference, convData, workspaceId, projectId);
+                const downloaded = IS_CLAUDE
+                    ? await fetchClaudeAttachment(reference)
+                    : await fetchAttachmentBinary(reference, convData, workspaceId, projectId);
                 const filename = uniqueAttachmentName(downloaded.filename, usedNames);
                 target.folder(folderName).file(filename, downloaded.data);
                 const relativePath = encodeRelativePath(`${folderName}/${filename}`);
@@ -791,7 +814,9 @@
     }
 
     function convertConversationToMarkdown(convData, attachmentResult = null) {
-        const messages = extractConversationMessages(convData, attachmentResult);
+        const messages = IS_CLAUDE
+            ? extractClaudeMessages(convData, attachmentResult)
+            : extractConversationMessages(convData, attachmentResult);
         const mdLines = messages.length === 0
             ? ['# Conversation', 'No visible user or assistant messages were exported.', '']
             : [];
@@ -828,6 +853,255 @@
         return mdLines.join('\n').trim() + '\n';
     }
 
+    // --- Claude (claude.ai) 支持 ---
+    // Claude 用会话 Cookie 鉴权，当前组织取自 lastActiveOrg Cookie；对话为 chat_messages 消息树。
+    function claudeOrgId() {
+        const match = document.cookie.match(/(?:^|; )lastActiveOrg=([^;]+)/);
+        if (!match?.[1]) throw new Error(t("无法获取 Claude 组织 ID，请确保已登录并刷新页面。"));
+        return encodeURIComponent(match[1]);
+    }
+
+    async function getClaudeConversation(id) {
+        const r = await fetch(
+            `/api/organizations/${claudeOrgId()}/chat_conversations/${encodeURIComponent(id)}?tree=True&rendering_mode=messages&render_all_tools=true`,
+            { credentials: 'include' }
+        );
+        if (!r.ok) throw new Error(t("获取对话详情失败 conv {id} ({status})", { id, status: r.status }));
+        const j = await r.json();
+        j.__fetched_at = new Date().toISOString();
+        return j;
+    }
+
+    async function listClaudeConversations() {
+        const org = claudeOrgId();
+        const map = new Map();
+        let offset = 0;
+        let added = 0;
+        // 以“本页是否出现新对话”作为结束条件：接口无论是否支持分页参数都能正常收敛。
+        do {
+            const r = await fetch(`/api/organizations/${org}/chat_conversations?limit=${PAGE_LIMIT}&offset=${offset}`, { credentials: 'include' });
+            if (!r.ok) throw new Error(t("列举对话列表失败 ({status})", { status: r.status }));
+            const items = await r.json();
+            const list = Array.isArray(items) ? items : [];
+            added = 0;
+            list.forEach(item => {
+                if (!item?.uuid || map.has(item.uuid)) return;
+                added++;
+                upsertConversationEntry(map, {
+                    id: item.uuid,
+                    title: item.name,
+                    create_time: item.created_at,
+                    update_time: item.updated_at
+                }, {
+                    projectId: item.project_uuid || item.project?.uuid || null,
+                    projectTitle: item.project?.name || null
+                });
+            });
+            offset += list.length;
+            if (added > 0) await sleep(jitter());
+        } while (added > 0);
+
+        const entries = Array.from(map.values());
+        if (entries.some(entry => entry.projectId && !entry.projectTitle)) {
+            const r = await fetch(`/api/organizations/${org}/projects`, { credentials: 'include' });
+            if (r.ok) {
+                const projects = await r.json();
+                const names = new Map((Array.isArray(projects) ? projects : []).map(project => [project.uuid, project.name]));
+                entries.forEach(entry => {
+                    if (entry.projectId && !entry.projectTitle) entry.projectTitle = names.get(entry.projectId) || null;
+                });
+            } else {
+                console.warn(`获取 Claude 项目列表失败 (${r.status})，项目对话将不按项目分组。`);
+            }
+        }
+        return entries.sort((a, b) => (b.update_time || 0) - (a.update_time || 0));
+    }
+
+    // 沿 current_leaf_message_uuid 向上回溯，得到页面上正在显示的这条分支。
+    function getClaudeBranch(convData) {
+        const all = Array.isArray(convData?.chat_messages) ? convData.chat_messages : [];
+        const byUuid = new Map(all.map(message => [message.uuid, message]));
+        const path = [];
+        const seen = new Set();
+        let current = byUuid.get(convData?.current_leaf_message_uuid);
+        while (current && !seen.has(current.uuid)) {
+            seen.add(current.uuid);
+            path.push(current);
+            current = byUuid.get(current.parent_message_uuid);
+        }
+        return path.length > 0
+            ? path.reverse()
+            : all.slice().sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    }
+
+    const CLAUDE_ARTIFACT_LANGUAGES = {
+        'application/vnd.ant.react': 'jsx', 'text/html': 'html', 'image/svg+xml': 'svg',
+        'application/vnd.ant.mermaid': 'mermaid', 'text/markdown': 'markdown'
+    };
+
+    function claudeCodeBlock(label, source, language) {
+        const longestRun = Math.max(0, ...(source.match(/`+/g) || []).map(run => run.length));
+        const fence = '`'.repeat(Math.max(3, longestRun + 1));
+        return `**${label}**\n\n${fence}${language || ''}\n${source}\n${fence}`;
+    }
+
+    function extractClaudeMessages(convData, attachmentResult = null) {
+        const branch = getClaudeBranch(convData);
+
+        // artifact 以 create/rewrite（全量）和 update（old_str→new_str）增量保存，
+        // 先折叠出最终内容，只在最后一次编辑的位置输出一次。
+        const artifacts = new Map();
+        branch.forEach(message => (message.content || []).forEach(block => {
+            if (block?.type !== 'tool_use' || block.name !== 'artifacts') return;
+            const input = block.input || {};
+            const artifact = artifacts.get(input.id) || { content: '' };
+            if (input.command === 'update') {
+                if (typeof input.old_str === 'string' && typeof input.new_str === 'string') {
+                    artifact.content = artifact.content.replace(input.old_str, () => input.new_str);
+                }
+            } else if (typeof input.content === 'string') {
+                artifact.content = input.content;
+            }
+            artifact.title = input.title || artifact.title;
+            artifact.type = input.type || artifact.type;
+            artifact.language = input.language || artifact.language;
+            artifact.lastBlock = block;
+            artifacts.set(input.id, artifact);
+        }));
+
+        const messages = [];
+        branch.forEach(message => {
+            if (message.sender !== 'human' && message.sender !== 'assistant') return;
+            const parts = [];
+            (message.content || []).forEach(block => {
+                if (block?.type === 'text' && typeof block.text === 'string') {
+                    parts.push(block.text.trim());
+                } else if (block?.type === 'tool_use' && block.name === 'artifacts') {
+                    const artifact = artifacts.get(block.input?.id);
+                    if (artifact?.lastBlock === block && artifact.content) {
+                        const language = CLAUDE_ARTIFACT_LANGUAGES[artifact.type] ?? artifact.language;
+                        parts.push(claudeCodeBlock(`Artifact: ${artifact.title || 'untitled'}`, artifact.content, language));
+                    }
+                } else if (block?.type === 'tool_use' && block.name === 'create_file' && typeof block.input?.file_text === 'string') {
+                    const name = String(block.input.path || 'file').split('/').pop();
+                    parts.push(claudeCodeBlock(`File: ${name}`, block.input.file_text, ''));
+                }
+            });
+            const attachmentLines = (attachmentResult?.files || [])
+                .filter(file => file.messageId === message.uuid)
+                .map(file => {
+                    const label = file.name.replace(/[\[\]]/g, '\\$&');
+                    return file.isImage ? `![${label}](${file.path})` : `📎 [${label}](${file.path})`;
+                });
+            const content = [...parts, ...attachmentLines].filter(Boolean).join('\n\n');
+            if (!content) return;
+            messages.push({
+                role: message.sender === 'human' ? 'user' : 'assistant',
+                content,
+                messageId: message.uuid,
+                create_time: message.created_at || null,
+                footnotes: []
+            });
+        });
+        return messages;
+    }
+
+    async function collectClaudeAttachments(convData) {
+        const references = new Map();
+        const add = (reference) => {
+            if (!references.has(reference.fileId)) references.set(reference.fileId, reference);
+        };
+
+        // 开启代码执行/文件创建的对话带有沙盒：uploads 是上传文件的原件，outputs 是 Claude 生成的文件。
+        // 其余对话没有沙盒，接口返回非 2xx，按没有沙盒文件处理。
+        const sandbox = `/api/organizations/${claudeOrgId()}/conversations/${encodeURIComponent(convData?.uuid)}/wiggle`;
+        const originals = new Map();
+        const listing = await fetch(`${sandbox}/list-files`, { credentials: 'include' });
+        const paths = listing.ok ? ((await listing.json())?.files || []) : [];
+        paths.forEach(path => {
+            if (typeof path !== 'string') return;
+            const url = `${sandbox}/download-file?path=${encodeURIComponent(path)}`;
+            const name = path.split('/').pop();
+            if (path.startsWith('/mnt/user-data/uploads/')) {
+                originals.set(name, url);
+            } else if (path.startsWith('/mnt/user-data/outputs/')) {
+                add({
+                    kind: 'generated', source: 'claude.sandbox.outputs', fileId: `sandbox:${path}`, name, url,
+                    isImage: /\.(png|jpe?g|gif|webp|svg)$/i.test(name), messageId: null, ownerRole: 'assistant'
+                });
+            }
+        });
+
+        getClaudeBranch(convData).forEach(message => {
+            const ownerRole = message.sender === 'human' ? 'user' : 'assistant';
+            [...(message.files || []), ...(message.files_v2 || [])].forEach(file => {
+                if (!file?.file_uuid) return;
+                const name = file.file_name || 'file';
+                add({
+                    kind: 'upload', source: 'claude.files', fileId: file.file_uuid, name,
+                    // 图片只有预览地址；沙盒里有原件时优先用原件。
+                    url: originals.get(name) || file.document_asset?.url || file.preview_url || file.preview_asset?.url || null,
+                    isImage: file.file_kind === 'image', messageId: message.uuid, ownerRole
+                });
+            });
+            // attachments 是文本类上传（粘贴内容、.md/.txt/.docx 等），接口只保留提取后的文本。
+            (message.attachments || []).forEach((attachment, index) => {
+                const name = attachment?.file_name || 'pasted.txt';
+                const url = originals.get(name) || null;
+                if (!url && typeof attachment?.extracted_content !== 'string') return;
+                add({
+                    kind: 'upload', source: 'claude.attachments', fileId: attachment.id || `${message.uuid}:attachment:${index}`, name,
+                    url, text: url ? null : attachment.extracted_content,
+                    isImage: false, messageId: message.uuid, ownerRole
+                });
+            });
+        });
+        return Array.from(references.values());
+    }
+
+    async function fetchClaudeAttachment(reference) {
+        if (typeof reference.text === 'string') {
+            return { data: new TextEncoder().encode(reference.text), filename: safeAttachmentName(reference.name) };
+        }
+        if (!reference.url) throw new Error('no downloadable URL');
+        const url = new URL(reference.url, location.origin);
+        const response = await fetchAttachmentResponse(url.href, url.origin === location.origin ? { credentials: 'include' } : {});
+        if (!response.ok) throw new Error(`binary HTTP ${response.status}`);
+        const filename = addMimeExtension(safeAttachmentName(reference.name), response.headers.get('content-type'));
+        return { data: new Uint8Array(await response.arrayBuffer()), filename };
+    }
+
+    // 页面右下角的导出进度提示：导出期间常驻并带转圈动画，避免点击后看起来像卡住。传入空值即移除。
+    function setExportStatus(text) {
+        let toast = document.getElementById('gpt-export-status');
+        if (!text) {
+            toast?.remove();
+            return;
+        }
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'gpt-export-status';
+            Object.assign(toast.style, {
+                position: 'fixed', bottom: '136px', right: '24px', zIndex: '99999',
+                display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '340px',
+                padding: '10px 14px', borderRadius: '8px', background: '#1f2937', color: '#fff',
+                fontSize: '13px', fontFamily: 'sans-serif', boxShadow: '0 3px 12px rgba(0,0,0,.25)'
+            });
+            const spinner = document.createElement('span');
+            Object.assign(spinner.style, {
+                width: '14px', height: '14px', flexShrink: '0', boxSizing: 'border-box',
+                border: '2px solid rgba(255,255,255,.35)', borderTopColor: '#fff', borderRadius: '50%'
+            });
+            spinner.animate?.([{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], { duration: 800, iterations: Infinity });
+            const label = document.createElement('span');
+            Object.assign(label.style, { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
+            toast.appendChild(spinner);
+            toast.appendChild(label);
+            document.body.appendChild(toast);
+        }
+        toast.childNodes[1].textContent = text;
+    }
+
     function downloadFile(blob, filename) {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -846,7 +1120,10 @@
      */
     function getCurrentConversationId() {
         const path = location.pathname || '';
-        const match = path.match(/\/c\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+        // Claude 的对话页地址形如 .../chat/<uuid>。
+        const match = path.match(IS_CLAUDE
+            ? /\/chat\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+            : /\/c\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
         return match ? match[1] : null;
     }
 
@@ -870,12 +1147,15 @@
         try {
             const convId = getCurrentConversationId();
             if (!convId) {
-                alert(t("未检测到当前对话。请先打开一个具体的对话页面（地址形如 https://chatgpt.com/c/...）后再试。"));
+                alert(IS_CLAUDE
+                    ? t("未检测到当前对话。请先打开一个具体的对话页面（地址形如 https://claude.ai/chat/...）后再试。")
+                    : t("未检测到当前对话。请先打开一个具体的对话页面（地址形如 https://chatgpt.com/c/...）后再试。"));
                 return;
             }
             if (!await ensureAccessToken()) return;
 
             setStatus(t("📥 导出当前对话…"));
+            setExportStatus(t("📥 导出当前对话…"));
             // 复用 getConversation：workspaceId 传 null 时会从 _account Cookie / 检测结果解析当前空间，
             // 与当前页面所属账户保持一致（个人 / 团队 / 项目通用）。
             const convData = await getConversation(convId, null);
@@ -887,7 +1167,9 @@
             if (attachmentReport) {
                 zip.file('attachment-export-report.json', JSON.stringify(attachmentReport, null, 2));
             }
+            setExportStatus(t("📦 生成 ZIP 文件…"));
             const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+            setExportStatus(null);
             const zipName = `${jsonName.endsWith('.json') ? jsonName.slice(0, -5) : jsonName}.zip`;
             downloadFile(blob, zipName);
 
@@ -898,6 +1180,7 @@
             alert(t("导出当前对话失败: {error}。详情请查看控制台（F12 -> Console）。", { error: e.message }));
             setStatus(t("⚠️ 出错"));
         } finally {
+            setExportStatus(null);
             currentExportInFlight = false;
             setTimeout(() => setStatus(exportButtonLabel()), 3000);
         }
@@ -1010,8 +1293,8 @@
         report.downloaded += attachmentResult.files.length;
         report.failed += attachmentResult.failures.length;
         report.conversations.push({
-            conversation_id: convData?.conversation_id || null,
-            title: convData?.title || 'Untitled Conversation',
+            conversation_id: convData?.conversation_id || convData?.uuid || null,
+            title: convData?.title || convData?.name || 'Untitled Conversation',
             detected: attachmentResult.detected,
             downloaded: attachmentResult.files,
             failures: attachmentResult.failures
@@ -1028,6 +1311,10 @@
         } = options;
         const btn = getExportButton();
         btn.disabled = true;
+        const progress = (text) => {
+            btn.textContent = text;
+            setExportStatus(text);
+        };
 
         if (!await ensureAccessToken()) {
             btn.disabled = false;
@@ -1042,7 +1329,7 @@
                 for (let i = 0; i < conversationEntries.length; i++) {
                     const entry = conversationEntries[i];
                     const label = entry?.title ? entry.title.slice(0, 12) : t("对话");
-                    btn.textContent = `📥 ${label} (${i + 1}/${conversationEntries.length})`;
+                    progress(`📥 ${label} (${i + 1}/${conversationEntries.length})`);
                     const convData = await getConversation(entry.id, workspaceId);
                     const target = entry?.projectTitle
                         ? zip.folder(sanitizeFilename(entry.projectTitle))
@@ -1051,25 +1338,25 @@
                     await sleep(jitter());
                 }
             } else {
-                btn.textContent = t("📂 获取项目外对话…");
+                progress(t("📂 获取项目外对话…"));
                 const orphanIds = await collectIds(btn, workspaceId, null);
                 for (let i = 0; i < orphanIds.length; i++) {
-                    btn.textContent = t("📥 根目录 ({current}/{total})", { current: i + 1, total: orphanIds.length });
+                    progress(t("📥 根目录 ({current}/{total})", { current: i + 1, total: orphanIds.length }));
                     const convData = await getConversation(orphanIds[i], workspaceId);
                     await addConversationToZip(zip, convData, workspaceId, attachmentReport);
                     await sleep(jitter());
                 }
 
-                btn.textContent = t("🔍 获取项目列表…");
+                progress(t("🔍 获取项目列表…"));
                 const projects = await getProjects(workspaceId);
                 for (const project of projects) {
                     const projectFolder = zip.folder(sanitizeFilename(project.title));
-                    btn.textContent = t("📂 项目: {title}", { title: project.title });
+                    progress(t("📂 项目: {title}", { title: project.title }));
                     const projectConvIds = await collectIds(btn, workspaceId, project.id);
                     if (projectConvIds.length === 0) continue;
 
                     for (let i = 0; i < projectConvIds.length; i++) {
-                        btn.textContent = `📥 ${project.title.substring(0,10)}... (${i + 1}/${projectConvIds.length})`;
+                        progress(`📥 ${project.title.substring(0,10)}... (${i + 1}/${projectConvIds.length})`);
                         const convData = await getConversation(projectConvIds[i], workspaceId);
                         await addConversationToZip(projectFolder, convData, workspaceId, attachmentReport, project.id);
                         await sleep(jitter());
@@ -1080,23 +1367,24 @@
             if (attachmentReport) {
                 zip.file('attachment-export-report.json', JSON.stringify(attachmentReport, null, 2));
             }
-            btn.textContent = t("📦 生成 ZIP 文件…");
+            progress(t("📦 生成 ZIP 文件…"));
             const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+            setExportStatus(null);
             const date = new Date().toISOString().slice(0, 10);
             const selectionType = exportType || ((Array.isArray(conversationEntries) && conversationEntries.length > 0) ? 'selected' : 'full');
             let filename = '';
             if (selectionType === 'selected') {
                 filename = mode === 'team'
-                    ? `chatgpt_team_selected_${workspaceId}_${date}.zip`
+                    ? `${EXPORT_FILE_PREFIX}_team_selected_${workspaceId}_${date}.zip`
                     : mode === 'project'
-                        ? `chatgpt_project_selected_${date}.zip`
-                        : `chatgpt_personal_selected_${date}.zip`;
+                        ? `${EXPORT_FILE_PREFIX}_project_selected_${date}.zip`
+                        : `${EXPORT_FILE_PREFIX}_personal_selected_${date}.zip`;
             } else {
                 filename = mode === 'team'
-                    ? `chatgpt_team_backup_${workspaceId}_${date}.zip`
+                    ? `${EXPORT_FILE_PREFIX}_team_backup_${workspaceId}_${date}.zip`
                     : mode === 'project'
-                        ? `chatgpt_project_backup_${date}.zip`
-                        : `chatgpt_personal_backup_${date}.zip`;
+                        ? `${EXPORT_FILE_PREFIX}_project_backup_${date}.zip`
+                        : `${EXPORT_FILE_PREFIX}_personal_backup_${date}.zip`;
             }
             downloadFile(blob, filename);
             alert(t("✅ 导出完成！{summary}", { summary: formatAttachmentSummary(attachmentReport) }));
@@ -1107,6 +1395,7 @@
             alert(t("导出失败: {error}。详情请查看控制台（F12 -> Console）。", { error: e.message }));
             btn.textContent = t("⚠️ 出错");
         } finally {
+            setExportStatus(null);
             setTimeout(() => {
                 btn.disabled = false;
                 btn.textContent = exportButtonLabel();
@@ -1115,6 +1404,27 @@
     }
 
     async function startExportProcess(mode, workspaceId, includeAttachments = DEFAULT_INCLUDE_ATTACHMENTS) {
+        if (IS_CLAUDE) {
+            // Claude 的列表接口同时返回项目内外的对话：先列出条目再导出，项目对话按项目名分目录。
+            try {
+                getExportButton().textContent = t("正在加载列表...");
+                setExportStatus(t("正在加载列表..."));
+                const entries = await listClaudeConversations();
+                if (entries.length === 0) {
+                    alert(t("没有匹配的对话。"));
+                    return;
+                }
+                await exportConversations({ mode, workspaceId, conversationEntries: entries, exportType: 'full', includeAttachments });
+            } catch (err) {
+                console.error('导出 Claude 对话失败:', err);
+                alert(t("导出失败: {error}。详情请查看控制台（F12 -> Console）。", { error: err.message }));
+            } finally {
+                setExportStatus(null);
+                const btn = getExportButton();
+                if (!btn.disabled) btn.textContent = exportButtonLabel();
+            }
+            return;
+        }
         await exportConversations({ mode, workspaceId, includeAttachments });
     }
 
@@ -1333,6 +1643,7 @@
     }
 
     async function listConversations(workspaceId) {
+        if (IS_CLAUDE) return listClaudeConversations();
         if (!await ensureAccessToken()) {
             throw new Error(t("无法获取 Access Token，请刷新页面或打开任意一个对话后再试。"));
         }
@@ -1441,6 +1752,7 @@
     }
 
     async function getConversation(id, workspaceId) {
+        if (IS_CLAUDE) return getClaudeConversation(id);
         const deviceId = getOaiDeviceId();
         if (!deviceId) {
             throw new Error(t("无法获取 oai-device-id，请确保已登录并刷新页面。"));
@@ -1545,7 +1857,7 @@
         };
 
         const renderBase = () => {
-            const modeLabel = mode === 'team' ? t("团队空间") : mode === 'project' ? t("项目空间") : t("个人空间");
+            const modeLabel = IS_CLAUDE ? t("全部对话") : mode === 'team' ? t("团队空间") : mode === 'project' ? t("项目空间") : t("个人空间");
             const workspaceLabel = workspaceId ? `（${workspaceId}）` : '';
             dialog.lang = i18n.language;
             dialog.innerHTML = `
@@ -1949,9 +2261,15 @@
                                             <button id="select-current-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">${t("导出当前对话")}</button>
                                         </div>
                                     </div>` : '';
-                    html = `<h2 style="margin-top:0; margin-bottom: 20px; font-size: 18px;">${t("选择要导出的空间")}</h2>
-                                <div style="display: flex; flex-direction: column; gap: 16px;">
-                                    ${currentCard}
+                    const spaceCards = IS_CLAUDE ? `
+                                    <div style="padding: 16px; border: 1px solid #ccc; border-radius: 8px; background: #f9fafb;">
+                                        <strong style="font-size: 16px;">${t("全部对话")}</strong>
+                                        <p style="margin: 4px 0 12px 0; color: #666;">${t("导出当前 Claude 组织下的全部对话，项目内的对话按项目分组。")}</p>
+                                        <div style="display: flex; gap: 8px;">
+                                            <button id="select-personal-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">${t("导出全部")}</button>
+                                            <button id="select-personal-picker-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("选择对话导出")}</button>
+                                        </div>
+                                    </div>` : `
                                     <div style="padding: 16px; border: 1px solid #ccc; border-radius: 8px; background: #f9fafb;">
                                         <strong style="font-size: 16px;">${t("个人空间")}</strong>
                                         <p style="margin: 4px 0 12px 0; color: #666;">${t("导出您个人账户下的对话。")}</p>
@@ -1975,7 +2293,11 @@
                                             <button id="select-team-btn" style="padding: 8px 12px; border: none; border-radius: 6px; background: #10a37f; color: #fff; cursor: pointer; font-weight: bold;">${t("导出全部")}</button>
                                             <button id="select-team-picker-btn" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;">${t("选择对话导出")}</button>
                                         </div>
-                                    </div>
+                                    </div>`;
+                    html = `<h2 style="margin-top:0; margin-bottom: 20px; font-size: 18px;">${t("选择要导出的空间")}</h2>
+                                <div style="display: flex; flex-direction: column; gap: 16px;">
+                                    ${currentCard}
+                                    ${spaceCards}
                                 </div>
                                 <label style="display: flex; align-items: flex-start; gap: 8px; margin-top: 16px; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb; cursor: pointer;">
                                     <input id="include-attachments" type="checkbox" ${includeAttachments ? 'checked' : ''} style="margin-top: 2px;">
@@ -2033,30 +2355,32 @@
                     closeDialog();
                     showConversationPicker({ mode: 'personal', workspaceId: null, includeAttachments });
                 };
-                document.getElementById('select-project-btn').onclick = () => {
-                    closeDialog();
-                    startProjectSpaceExportProcess(null, includeAttachments);
-                };
-                document.getElementById('select-project-picker-btn').onclick = () => {
-                    closeDialog();
-                    showConversationPicker({ mode: 'project', workspaceId: null, includeAttachments });
-                };
-                const startTeamFlow = (action) => {
-                    const detectedIds = detectAllWorkspaceIds();
-                    if (detectedIds.length === 1) {
-                        const workspaceId = detectedIds[0];
+                if (!IS_CLAUDE) {
+                    document.getElementById('select-project-btn').onclick = () => {
                         closeDialog();
-                        if (action === 'all') {
-                            startExportProcess('team', workspaceId, includeAttachments);
-                        } else {
-                            showConversationPicker({ mode: 'team', workspaceId, includeAttachments });
+                        startProjectSpaceExportProcess(null, includeAttachments);
+                    };
+                    document.getElementById('select-project-picker-btn').onclick = () => {
+                        closeDialog();
+                        showConversationPicker({ mode: 'project', workspaceId: null, includeAttachments });
+                    };
+                    const startTeamFlow = (action) => {
+                        const detectedIds = detectAllWorkspaceIds();
+                        if (detectedIds.length === 1) {
+                            const workspaceId = detectedIds[0];
+                            closeDialog();
+                            if (action === 'all') {
+                                startExportProcess('team', workspaceId, includeAttachments);
+                            } else {
+                                showConversationPicker({ mode: 'team', workspaceId, includeAttachments });
+                            }
+                            return;
                         }
-                        return;
-                    }
-                    renderStep('team', action);
-                };
-                document.getElementById('select-team-btn').onclick = () => startTeamFlow('all');
-                document.getElementById('select-team-picker-btn').onclick = () => startTeamFlow('select');
+                        renderStep('team', action);
+                    };
+                    document.getElementById('select-team-btn').onclick = () => startTeamFlow('all');
+                    document.getElementById('select-team-picker-btn').onclick = () => startTeamFlow('select');
+                }
                 document.getElementById('cancel-btn').onclick = closeDialog;
             } else if (step === 'team') {
                 document.getElementById('back-btn').onclick = () => renderStep('initial');

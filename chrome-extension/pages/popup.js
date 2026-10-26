@@ -3,7 +3,7 @@ import { storage, tabs } from '../utils/chrome-helpers.js';
 import { createI18n } from '../utils/i18n.js';
 import { PAGE_MESSAGES, translatePage } from '../utils/page-messages.js';
 
-const EXPECTED_EXPORTER_VERSION = '1.6.0';
+const EXPECTED_EXPORTER_VERSION = '1.7.1';
 const i18n = createI18n(PAGE_MESSAGES);
 
 const nextRunEl = document.getElementById('next-run');
@@ -15,7 +15,8 @@ const hintEl = document.getElementById('hint');
 
 // 个人 / 项目 / GPT 对话页地址均形如 .../c/<uuid>（项目页可能带前缀，如 .../g/<gizmo>/c/<uuid>）。
 // 允许 c/ 之前出现任意路径段，与页面侧 getCurrentConversationId() 的匹配逻辑保持一致，避免两边判定漂移。
-const CONVERSATION_URL_RE = /^https:\/\/(?:[^/]*\.)?(?:chatgpt\.com|chat\.openai\.com)\/(?:[^?#]*\/)?c\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+// Claude 的对话页地址形如 https://claude.ai/chat/<uuid>。
+const CONVERSATION_URL_RE = /^https:\/\/(?:(?:[^/]*\.)?(?:chatgpt\.com|chat\.openai\.com)\/(?:[^?#]*\/)?c|claude\.ai\/chat)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -58,9 +59,9 @@ async function refreshCurrentState() {
     const onConversation = !!tab && CONVERSATION_URL_RE.test(tab.url || '');
     exportCurrentBtn.disabled = !onConversation;
     if (!tab) {
-        hintEl.textContent = i18n.t('请先打开 chatgpt.com，再导出');
+        hintEl.textContent = i18n.t('请先打开 chatgpt.com 或 claude.ai，再导出');
     } else if (!onConversation) {
-        hintEl.textContent = i18n.t('“导出当前对话”需在某个对话页面（.../c/...）使用');
+        hintEl.textContent = i18n.t('“导出当前对话”需在某个对话页面（.../c/... 或 .../chat/...）使用');
     } else {
         hintEl.textContent = '';
     }
@@ -86,7 +87,10 @@ async function triggerExport(messageType) {
     };
     try {
         const response = await tabs.sendMessage(tab.id, { type: messageType });
-        if (response?.version === EXPECTED_EXPORTER_VERSION) return;
+        if (response?.version === EXPECTED_EXPORTER_VERSION) {
+            window.close(); // 进度显示在页面右下角，关闭弹窗以免遮挡
+            return;
+        }
     } catch (error) {
         if (!isNoReceiverError(error)) {
             console.warn('Failed to reach content scripts, retrying after injection...', error);
@@ -103,8 +107,9 @@ async function triggerExport(messageType) {
         if (response?.version !== EXPECTED_EXPORTER_VERSION) {
             throw new Error(i18n.t('页面仍在运行旧版导出器 ({version})', { version: response?.version || 'unknown' }));
         }
+        window.close();
     } catch (retryError) {
-        alert(i18n.t('无法连接到页面脚本。请尝试刷新 ChatGPT 页面后再试。'));
+        alert(i18n.t('无法连接到页面脚本。请尝试刷新页面后再试。'));
         console.error('Retry failed:', retryError);
     }
 }
@@ -114,8 +119,9 @@ async function getActiveChatGPTTab() {
     const url = tab?.url || '';
     const isChatGPT = /^https:\/\/(.*\.)?chatgpt\.com/.test(url);
     const isOpenAI = /^https:\/\/(.*\.)?chat\.openai\.com/.test(url);
+    const isClaude = /^https:\/\/claude\.ai\//.test(url);
 
-    if (tab && (isChatGPT || isOpenAI)) {
+    if (tab && (isChatGPT || isOpenAI || isClaude)) {
         return tab;
     }
     return null;

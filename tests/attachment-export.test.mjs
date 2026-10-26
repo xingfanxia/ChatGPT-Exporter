@@ -8,7 +8,7 @@ const SCRIPT_PATHS = [
     'chrome-extension/exporter.user.js'
 ];
 
-function loadExporter(scriptPath) {
+function loadExporter(scriptPath, site = {}) {
     const elements = new Map();
     const attributes = new Map();
     const hook = {};
@@ -42,7 +42,7 @@ function loadExporter(scriptPath) {
     const document = {
         body,
         documentElement,
-        cookie: 'oai-did=test-device; _account=ws-test',
+        cookie: site.cookie ?? 'oai-did=test-device; _account=ws-test',
         createElement,
         getElementById: id => elements.get(id) ?? null,
         querySelector: () => null
@@ -67,7 +67,7 @@ function loadExporter(scriptPath) {
         window,
         document,
         history: { pushState() {}, replaceState() {} },
-        location: { origin: 'https://chatgpt.com', pathname: '/' },
+        location: site.location ?? { origin: 'https://chatgpt.com', pathname: '/' },
         localStorage: { length: 0, key: () => null, getItem: () => null },
         XMLHttpRequest: MockXMLHttpRequest,
         CustomEvent: class CustomEvent { constructor(type) { this.type = type; } },
@@ -77,6 +77,7 @@ function loadExporter(scriptPath) {
         URL,
         URLSearchParams,
         Uint8Array,
+        TextEncoder,
         Blob,
         console: { log() {}, info() {}, warn() {}, error() {} },
         alert() {},
@@ -93,7 +94,9 @@ function loadExporter(scriptPath) {
         fetchAttachmentBinary,
         convertConversationToMarkdown,
         createAttachmentReport,
-        addConversationToZip
+        addConversationToZip,
+        getCurrentConversationId,
+        listConversations
     });
 
     window.ChatGPTExporter = window.ChatGPTExporter || {};`;
@@ -359,5 +362,145 @@ for (const scriptPath of SCRIPT_PATHS) {
         assert.equal(Array.from(entries.keys()).some(name => name.endsWith('.json')), true);
         assert.equal(Array.from(entries.keys()).some(name => name.endsWith('.md')), true);
         assert.match(Array.from(entries.entries()).find(([name]) => name.endsWith('.md'))[1], /Keep this message\./);
+    });
+}
+
+const CLAUDE_SITE = {
+    cookie: 'lastActiveOrg=org-1',
+    location: {
+        origin: 'https://claude.ai',
+        hostname: 'claude.ai',
+        pathname: '/chat/11111111-2222-3333-4444-555555555555'
+    }
+};
+
+function claudeConversationFixture() {
+    const artifact = (command, input) => ({
+        type: 'tool_use', name: 'artifacts', input: { id: 'page', command, ...input }
+    });
+    return {
+        uuid: '11111111-2222-3333-4444-555555555555',
+        name: 'Claude sample',
+        current_leaf_message_uuid: 'a2',
+        chat_messages: [
+            {
+                uuid: 'h1', parent_message_uuid: 'root', sender: 'human', index: 0,
+                content: [{ type: 'text', text: 'Build a page from these.' }],
+                files: [
+                    { file_uuid: 'img-1', file_name: 'shot.png', file_kind: 'image', preview_url: '/api/org-1/files/img-1/preview' },
+                    { file_uuid: 'bin-1', file_name: 'voice.m4a', file_kind: 'blob' }
+                ],
+                attachments: [{ file_name: 'notes.md', extracted_content: '# notes' }]
+            },
+            {
+                uuid: 'a1-discarded', parent_message_uuid: 'h1', sender: 'assistant', index: 1,
+                content: [{ type: 'text', text: 'Regenerated away.' }]
+            },
+            {
+                uuid: 'a1', parent_message_uuid: 'h1', sender: 'assistant', index: 2,
+                content: [
+                    { type: 'thinking', thinking: 'private reasoning' },
+                    { type: 'text', text: 'Here is the page.' },
+                    artifact('create', { title: 'Landing', type: 'text/html', content: '<h1>Draft</h1>' })
+                ]
+            },
+            {
+                uuid: 'h2', parent_message_uuid: 'a1', sender: 'human', index: 3,
+                content: [{ type: 'text', text: 'Rename the heading.' }]
+            },
+            {
+                uuid: 'a2', parent_message_uuid: 'h2', sender: 'assistant', index: 4,
+                content: [
+                    artifact('update', { old_str: 'Draft', new_str: 'Final' }),
+                    { type: 'text', text: 'Renamed.' }
+                ]
+            }
+        ]
+    };
+}
+
+for (const scriptPath of SCRIPT_PATHS) {
+    test(`${scriptPath}: exports the visible Claude branch with artifacts, uploads and sandbox files`, async () => {
+        const runtime = loadExporter(scriptPath, CLAUDE_SITE);
+        assert.equal(runtime.hook.getCurrentConversationId(), '11111111-2222-3333-4444-555555555555');
+
+        const requests = [];
+        const fetchMock = async (url, options = {}) => {
+            const href = String(url);
+            requests.push({ href, options });
+            if (href.endsWith('/wiggle/list-files')) {
+                return new Response(JSON.stringify({
+                    files: ['/mnt/user-data/uploads/notes.md', '/mnt/user-data/outputs/report.csv', '/mnt/skills/internal.py']
+                }), { status: 200, headers: { 'content-type': 'application/json' } });
+            }
+            if (href.includes('/wiggle/download-file?path=')) {
+                return new Response(new Uint8Array([7]), { status: 200, headers: { 'content-type': 'application/octet-stream' } });
+            }
+            if (href === 'https://claude.ai/api/org-1/files/img-1/preview') {
+                return new Response(new Uint8Array([8]), { status: 200, headers: { 'content-type': 'image/webp' } });
+            }
+            throw new Error(`Unexpected request: ${href}`);
+        };
+        runtime.context.fetch = fetchMock;
+        runtime.window.fetch = fetchMock;
+
+        const entries = new Map();
+        const target = {
+            file(name, value) { entries.set(name, value); return this; },
+            folder(name) {
+                return { file(filename, value) { entries.set(`${name}/${filename}`, value); return this; } };
+            }
+        };
+        const report = runtime.hook.createAttachmentReport();
+        await runtime.hook.addConversationToZip(target, claudeConversationFixture(), null, report);
+
+        const base = 'Claude sample_555555555555';
+        assert.deepEqual([...entries.keys()].sort(), [
+            `${base}.json`, `${base}.md`,
+            `${base}_files/notes.md`, `${base}_files/report.csv`, `${base}_files/shot.png`
+        ]);
+        assert.equal(report.detected, 4);
+        assert.equal(report.downloaded, 3);
+        assert.equal(report.conversations[0].conversation_id, '11111111-2222-3333-4444-555555555555');
+        assert.equal(report.conversations[0].failures[0].name, 'voice.m4a');
+        assert.equal(requests.every(request => request.options.credentials === 'include'), true);
+        assert.equal(requests.some(request => request.href.includes('internal.py')), false);
+
+        const markdown = entries.get(`${base}.md`);
+        assert.doesNotMatch(markdown, /Regenerated away|private reasoning|Draft/);
+        assert.match(markdown, /# User\nBuild a page from these\.\n\n!\[shot\.png\]\(Claude%20sample_555555555555_files\/shot\.png\)\n\n📎 \[notes\.md\]/);
+        assert.match(markdown, /# Assistant\nHere is the page\.\n\n# User\nRename the heading\./);
+        assert.match(markdown, /\*\*Artifact: Landing\*\*\n\n```html\n<h1>Final<\/h1>\n```\n\nRenamed\./);
+        assert.match(markdown, /# Attachments\n\n- \[report\.csv\]/);
+    });
+
+    test(`${scriptPath}: lists Claude conversations until a page adds nothing new`, async () => {
+        const runtime = loadExporter(scriptPath, CLAUDE_SITE);
+        const requests = [];
+        const fetchMock = async (url) => {
+            const href = String(url);
+            requests.push(href);
+            if (href.endsWith('/projects')) {
+                return new Response(JSON.stringify([{ uuid: 'p1', name: 'Research' }]), { status: 200 });
+            }
+            // An endpoint that ignores offset keeps returning the same page.
+            return new Response(JSON.stringify([
+                { uuid: 'c1', name: 'Older', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z' },
+                { uuid: 'c2', name: '', updated_at: '2026-02-01T00:00:00Z', project_uuid: 'p1' }
+            ]), { status: 200 });
+        };
+        runtime.context.fetch = fetchMock;
+        runtime.window.fetch = fetchMock;
+
+        const list = JSON.parse(JSON.stringify(await runtime.hook.listConversations(null)));
+        assert.deepEqual(list.map(entry => [entry.id, entry.title, entry.projectTitle]), [
+            ['c2', 'Untitled Conversation', 'Research'],
+            ['c1', 'Older', null]
+        ]);
+        assert.deepEqual(requests, [
+            '/api/organizations/org-1/chat_conversations?limit=100&offset=0',
+            '/api/organizations/org-1/chat_conversations?limit=100&offset=2',
+            '/api/organizations/org-1/projects'
+        ]);
     });
 }
